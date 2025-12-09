@@ -26,12 +26,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../ui/alert-dialog';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Checkbox } from '../ui/checkbox';
 import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '../ui/separator';
+import { toast } from 'sonner';
 
 interface Subject {
   id: string;
@@ -156,6 +167,10 @@ export function Classes() {
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [selectedClass, setSelectedClass] = useState<ClassData | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingClassId, setEditingClassId] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [classToDelete, setClassToDelete] = useState<ClassData | null>(null);
 
   // Form states
   const [className, setClassName] = useState('');
@@ -202,29 +217,99 @@ export function Classes() {
     );
   };
 
-  const handleSubmitClass = () => {
-    // In real app, this would call an API
-    const newClass: ClassData = {
-      id: `${classes.length + 1}`,
-      name: className,
-      grade: parseInt(gradeLevel),
-      academicYear: '2024-2025',
-      sections: sections,
-      subjects: allSubjects
-        .filter(sub => selectedSubjects.includes(sub.id))
-        .map(sub => ({ ...sub, teacher: '' })),
-      totalStudents: sections.reduce((sum, s) => sum + s.enrolled, 0),
-      totalCapacity: sections.reduce((sum, s) => sum + s.capacity, 0),
-    };
+  const handleEditClass = (classData: ClassData) => {
+    setEditingClassId(classData.id);
+    setIsEditMode(true);
+    setClassName(classData.name);
+    setGradeLevel(classData.grade.toString());
+    setSections(classData.sections.map(s => ({ ...s })));
+    setSelectedSubjects(classData.subjects.map(s => s.id));
+    setActiveTab('overview');
+    setShowAddDialog(true);
+  };
 
-    setClasses([...classes, newClass]);
+  const handleDeleteClass = (classData: ClassData) => {
+    setClassToDelete(classData);
+    setShowDeleteDialog(true);
+  };
+
+  const confirmDelete = () => {
+    if (classToDelete) {
+      setClasses(classes.filter(c => c.id !== classToDelete.id));
+      toast.success(`Class "${classToDelete.name}" deleted successfully`);
+      setShowDeleteDialog(false);
+      setClassToDelete(null);
+    }
+  };
+
+  const handleSubmitClass = () => {
+    if (isEditMode && editingClassId) {
+      // Update existing class
+      const updatedClass: ClassData = {
+        id: editingClassId,
+        name: className,
+        grade: parseInt(gradeLevel),
+        academicYear: classes.find(c => c.id === editingClassId)?.academicYear || '2024-2025',
+        sections: sections,
+        subjects: allSubjects
+          .filter(sub => selectedSubjects.includes(sub.id))
+          .map(sub => {
+            // Preserve existing teacher assignments if available
+            const existingClass = classes.find(c => c.id === editingClassId);
+            const existingSubject = existingClass?.subjects.find(s => s.id === sub.id);
+            return {
+              ...sub,
+              teacher: existingSubject?.teacher || '',
+              teacherId: existingSubject?.teacherId,
+            };
+          }),
+        totalStudents: sections.reduce((sum, s) => sum + s.enrolled, 0),
+        totalCapacity: sections.reduce((sum, s) => sum + s.capacity, 0),
+      };
+
+      setClasses(classes.map(c => c.id === editingClassId ? updatedClass : c));
+      toast.success(`Class "${className}" updated successfully`);
+    } else {
+      // Add new class
+      const newClass: ClassData = {
+        id: `${Date.now()}`, // Use timestamp for unique ID
+        name: className,
+        grade: parseInt(gradeLevel),
+        academicYear: '2024-2025',
+        sections: sections,
+        subjects: allSubjects
+          .filter(sub => selectedSubjects.includes(sub.id))
+          .map(sub => ({ ...sub, teacher: '' })),
+        totalStudents: sections.reduce((sum, s) => sum + s.enrolled, 0),
+        totalCapacity: sections.reduce((sum, s) => sum + s.capacity, 0),
+      };
+
+      setClasses([...classes, newClass]);
+      toast.success(`Class "${className}" created successfully`);
+    }
+
     setShowAddDialog(false);
+    setIsEditMode(false);
+    setEditingClassId(null);
 
     // Reset form
     setClassName('');
     setGradeLevel('');
     setSections([{ id: '1', name: 'A', capacity: 40, enrolled: 0, room: '' }]);
     setSelectedSubjects([]);
+    setActiveTab('overview');
+  };
+
+  const handleCloseDialog = () => {
+    setShowAddDialog(false);
+    setIsEditMode(false);
+    setEditingClassId(null);
+    // Reset form
+    setClassName('');
+    setGradeLevel('');
+    setSections([{ id: '1', name: 'A', capacity: 40, enrolled: 0, room: '' }]);
+    setSelectedSubjects([]);
+    setActiveTab('overview');
   };
 
   return (
@@ -380,11 +465,14 @@ export function Classes() {
                             <Eye className="w-4 h-4 mr-2" />
                             View Details
                           </DropdownMenuItem>
-                          <DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleEditClass(classData)}>
                             <Edit className="w-4 h-4 mr-2" />
                             Edit
                           </DropdownMenuItem>
-                          <DropdownMenuItem className="text-red-600">
+                          <DropdownMenuItem 
+                            className="text-red-600"
+                            onClick={() => handleDeleteClass(classData)}
+                          >
                             <Trash2 className="w-4 h-4 mr-2" />
                             Delete
                           </DropdownMenuItem>
@@ -399,23 +487,25 @@ export function Classes() {
         </div>
       </Card>
 
-      {/* Add Class Dialog */}
-      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+      {/* Add/Edit Class Dialog */}
+      <Dialog open={showAddDialog} onOpenChange={handleCloseDialog}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle>Add New Class</DialogTitle>
-            <DialogDescription>Create a new class with sections and subjects</DialogDescription>
+            <DialogTitle>{isEditMode ? 'Edit Class' : 'Add New Class'}</DialogTitle>
+            <DialogDescription>
+              {isEditMode ? 'Update class information, sections and subjects' : 'Create a new class with sections and subjects'}
+            </DialogDescription>
           </DialogHeader>
 
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
-            <TabsList className="grid w-full grid-cols-3">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden min-h-0">
+            <TabsList className="grid w-full grid-cols-3 flex-shrink-0">
               <TabsTrigger value="overview">Basic Info</TabsTrigger>
               <TabsTrigger value="sections">Sections</TabsTrigger>
               <TabsTrigger value="subjects">Subjects</TabsTrigger>
             </TabsList>
 
-            <ScrollArea className="flex-1 pr-4">
-              <TabsContent value="overview" className="space-y-4 mt-4">
+            <div className="flex-1 overflow-hidden min-h-0">
+              <TabsContent value="overview" className="space-y-4 mt-4 h-full overflow-y-auto pr-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="className">Class Name</Label>
@@ -461,7 +551,7 @@ export function Classes() {
                 </div>
               </TabsContent>
 
-              <TabsContent value="sections" className="space-y-4 mt-4">
+              <TabsContent value="sections" className="space-y-4 mt-4 h-full overflow-y-auto pr-4">
                 <div className="flex items-center justify-between mb-4">
                   <p className="text-sm text-gray-600 dark:text-gray-400">
                     Configure sections for this class
@@ -532,46 +622,48 @@ export function Classes() {
                 </div>
               </TabsContent>
 
-              <TabsContent value="subjects" className="space-y-4 mt-4">
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              <TabsContent value="subjects" className="mt-4 h-full flex flex-col overflow-hidden">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 flex-shrink-0">
                   Select subjects to be taught in this class
                 </p>
 
-                <div className="grid grid-cols-2 gap-4">
-                  {allSubjects.map(subject => (
-                    <Card
-                      key={subject.id}
-                      className={`p-4 cursor-pointer transition-all ${selectedSubjects.includes(subject.id)
-                          ? 'border-[#0A66C2] bg-[#E8F0FE] dark:bg-[#0A66C2]/10'
-                          : ''
-                        }`}
-                      onClick={() => handleSubjectToggle(subject.id)}
-                    >
-                      <div className="flex items-start gap-3">
-                        <Checkbox
-                          checked={selectedSubjects.includes(subject.id)}
-                          onCheckedChange={() => handleSubjectToggle(subject.id)}
-                        />
-                        <div className="flex-1">
-                          <p className="text-sm text-gray-900 dark:text-white mb-1">
-                            {subject.name}
-                          </p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
-                            Code: {subject.code}
-                          </p>
+                <ScrollArea className="flex-1 min-h-0">
+                  <div className="grid grid-cols-2 gap-4 pr-4 pb-4">
+                    {allSubjects.map(subject => (
+                      <Card
+                        key={subject.id}
+                        className={`p-4 cursor-pointer transition-all ${selectedSubjects.includes(subject.id)
+                            ? 'border-[#0A66C2] bg-[#E8F0FE] dark:bg-[#0A66C2]/10'
+                            : ''
+                          }`}
+                        onClick={() => handleSubjectToggle(subject.id)}
+                      >
+                        <div className="flex items-start gap-3">
+                          <Checkbox
+                            checked={selectedSubjects.includes(subject.id)}
+                            onCheckedChange={() => handleSubjectToggle(subject.id)}
+                          />
+                          <div className="flex-1">
+                            <p className="text-sm text-gray-900 dark:text-white mb-1">
+                              {subject.name}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              Code: {subject.code}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    </Card>
-                  ))}
-                </div>
+                      </Card>
+                    ))}
+                  </div>
+                </ScrollArea>
               </TabsContent>
-            </ScrollArea>
+            </div>
           </Tabs>
 
           <Separator className="my-4" />
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDialog(false)}>
+            <Button variant="outline" onClick={handleCloseDialog}>
               Cancel
             </Button>
             {activeTab === 'subjects' ? (
@@ -579,7 +671,7 @@ export function Classes() {
                 className="bg-[#0A66C2] hover:bg-[#0052A3]"
                 onClick={handleSubmitClass}
               >
-                Create Class
+                {isEditMode ? 'Update Class' : 'Create Class'}
               </Button>
             ) : (
               <Button
@@ -714,6 +806,33 @@ export function Classes() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the class
+              <span className="font-semibold text-gray-900 dark:text-white">
+                {' '}"{classToDelete?.name}"
+              </span>
+              {' '}and all its associated data including sections and subject mappings.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setClassToDelete(null)}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

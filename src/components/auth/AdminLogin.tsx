@@ -12,9 +12,10 @@ interface AdminLoginProps {
   onBack: () => void;
   onForgotPassword: (email: string) => void;
   onLogin: (email: string, password: string, needs2FA: boolean) => void;
+  onSignup?: () => void;
 }
 
-export function AdminLogin({ onBack, onForgotPassword, onLogin }: AdminLoginProps) {
+export function AdminLogin({ onBack, onForgotPassword, onLogin, onSignup }: AdminLoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -221,6 +222,22 @@ export function AdminLogin({ onBack, onForgotPassword, onLogin }: AdminLoginProp
               Microsoft
             </Button>
           </div>
+
+          {/* Signup Link */}
+          {onSignup && (
+            <div className="mt-6 text-center">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Don't have an account?{' '}
+                <button
+                  type="button"
+                  onClick={onSignup}
+                  className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
+                >
+                  Sign up
+                </button>
+              </p>
+            </div>
+          )}
 
           {/* Security Footer */}
           <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">

@@ -34,8 +34,9 @@ export function TeacherLogin({ onBack, onForgotPassword, onLogin }: TeacherLogin
     
     setTimeout(() => {
       setIsLoading(false);
-      toast.success('Login successful');
-      onLogin(emailOrId, password, false);
+      toast.success('Login credentials verified');
+      // Enable 2FA for teachers - redirect to OTP verification
+      onLogin(emailOrId, password, true);
     }, 1500);
   };
 

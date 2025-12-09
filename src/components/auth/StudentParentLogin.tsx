@@ -36,8 +36,9 @@ export function StudentParentLogin({ onBack, onForgotPassword, onLogin }: Studen
     
     setTimeout(() => {
       setIsLoading(false);
-      toast.success('Login successful');
-      onLogin(admissionNumber, dateOfBirth, false);
+      toast.success('Login credentials verified');
+      // Enable 2FA for students - redirect to OTP verification
+      onLogin(admissionNumber, dateOfBirth, true);
     }, 1500);
   };
 

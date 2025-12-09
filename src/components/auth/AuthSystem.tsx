@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { PortalSelection } from './PortalSelection';
 import { AdminLogin } from './AdminLogin';
+import { AdminRegister } from './AdminRegister';
 import { TeacherLogin } from './TeacherLogin';
 import { StudentParentLogin } from './StudentParentLogin';
 import { ForgotPassword } from './ForgotPassword';
@@ -15,6 +16,7 @@ import { LoginSuccess } from './LoginSuccess';
 export type AuthScreen = 
   | 'portal-selection'
   | 'admin-login'
+  | 'admin-register'
   | 'teacher-login'
   | 'student-login'
   | 'forgot-password'
@@ -108,6 +110,15 @@ export function AuthSystem({ onLoginSuccess }: AuthSystemProps) {
             onBack={handleBackToPortal}
             onForgotPassword={handleForgotPassword}
             onLogin={handleLoginAttempt}
+            onSignup={() => setCurrentScreen('admin-register')}
+          />
+        );
+      
+      case 'admin-register':
+        return (
+          <AdminRegister
+            onBack={() => setCurrentScreen('admin-login')}
+            onRegisterSuccess={() => setCurrentScreen('admin-login')}
           />
         );
       
