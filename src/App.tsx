@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
@@ -37,18 +38,25 @@ import { StudentProfile } from './components/student/StudentProfile';
 import { Toaster } from './components/ui/sonner';
 import { AuthSystem, UserRole } from './components/auth/AuthSystem';
 import { authService } from './services';
+import { schoolStorage } from './utils/storage';
 import { toast } from 'sonner';
 
 export default function App() {
+  const { schoolId } = useParams<{ schoolId: string }>();
+  const navigate = useNavigate();
+  
   // Set to true to bypass authentication for development
   const BYPASS_AUTH = false;
   
-  // Initialize authentication state from storage
+  // Initialize authentication state - start with checking storage to prevent flash
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     if (BYPASS_AUTH) return true;
-    // Check if user is authenticated from storage
-    return authService.isAuthenticated();
+    // Check if user is authenticated from storage immediately
+    const authenticated = authService.isAuthenticated();
+    return authenticated;
   });
+  
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true); // Add loading state
   
   const [userType, setUserType] = useState<'admin' | 'teacher' | 'student'>(() => {
     // Try to restore from storage first
@@ -88,35 +96,75 @@ export default function App() {
     if (!BYPASS_AUTH) {
       const checkAuth = () => {
         const authenticated = authService.isAuthenticated();
-        setIsAuthenticated(authenticated);
+        
+        // If not authenticated and on protected route, redirect to login
+        if (!authenticated) {
+          setIsAuthenticated(false);
+          setIsCheckingAuth(false);
+          // Only redirect if we're on a protected route (not on login page)
+          const currentPath = window.location.pathname;
+          if (!currentPath.includes('/admin/login') && !currentPath.includes('/admin/school-login')) {
+            navigate('/admin/login');
+          }
+          return;
+        }
+        
+        // User is authenticated
+        setIsAuthenticated(true);
+        setIsCheckingAuth(false);
         
         // Update user type if authenticated
-        if (authenticated) {
-          const user = authService.getCurrentUser();
-          if (user?.role) {
-            const role = user.role.toLowerCase();
-            let newUserType: 'admin' | 'teacher' | 'student' = 'admin';
-            if (role === 'super_admin' || role === 'school_admin' || role === 'admin') {
-              newUserType = 'admin';
-            } else if (role === 'teacher') {
-              newUserType = 'teacher';
-            } else if (role === 'student') {
-              newUserType = 'student';
-            }
-            setUserType(newUserType);
-            // Save user type to storage
-            sessionStorage.setItem('app_user_type', newUserType);
+        const user = authService.getCurrentUser();
+        if (user?.role) {
+          const role = user.role.toLowerCase();
+          let newUserType: 'admin' | 'teacher' | 'student' = 'admin';
+          if (role === 'super_admin' || role === 'school_admin' || role === 'admin') {
+            newUserType = 'admin';
+          } else if (role === 'teacher') {
+            newUserType = 'teacher';
+          } else if (role === 'student') {
+            newUserType = 'student';
           }
+          setUserType(newUserType);
+          // Save user type to storage
+          sessionStorage.setItem('app_user_type', newUserType);
+        }
+        
+        // Verify school ID matches route
+        if (schoolId) {
+          // Check schoolStorage first (most reliable)
+          const storedSchoolId = schoolStorage.getSchoolId();
+          const user = authService.getCurrentUser();
+          const userSchoolId = user?.schoolId;
           
-          // Restore current page from storage if available
-          const storedPage = sessionStorage.getItem('app_current_page');
-          if (storedPage) {
-            setCurrentPage(storedPage);
+          // Use stored school ID if available, otherwise use user's schoolId
+          const currentSchoolId = storedSchoolId || userSchoolId;
+          
+          if (currentSchoolId && currentSchoolId !== schoolId) {
+            // School ID mismatch - redirect to correct school dashboard
+            console.log('School ID mismatch, redirecting:', { routeSchoolId: schoolId, currentSchoolId });
+            navigate(`/admin/school/${currentSchoolId}/dashboard`);
+          } else if (!currentSchoolId) {
+            // No school ID found - redirect to school login
+            console.warn('No school ID found, redirecting to school login');
+            navigate('/admin/school-login');
           }
         } else {
-          // If not authenticated, clear page storage
-          sessionStorage.removeItem('app_current_page');
-          sessionStorage.removeItem('app_user_type');
+          // No schoolId in route - check if we have one stored
+          const storedSchoolId = schoolStorage.getSchoolId();
+          if (storedSchoolId) {
+            // Redirect to dashboard with school ID
+            navigate(`/admin/school/${storedSchoolId}/dashboard`);
+          } else {
+            // No school ID in storage either - redirect to school login
+            navigate('/admin/school-login');
+          }
+        }
+        
+        // Restore current page from storage if available
+        const storedPage = sessionStorage.getItem('app_current_page');
+        if (storedPage) {
+          setCurrentPage(storedPage);
         }
       };
       
@@ -125,7 +173,7 @@ export default function App() {
       
       // Listen for storage changes (for cross-tab sync)
       const handleStorageChange = (e: StorageEvent) => {
-        if (e.key === 'auth_tokens' || e.key === 'auth_user') {
+        if (e.key === 'auth_token' || e.key === 'auth_refresh_token' || e.key === 'auth_user' || e.key === 'school_uuid') {
           checkAuth();
         }
       };
@@ -135,8 +183,10 @@ export default function App() {
       return () => {
         window.removeEventListener('storage', handleStorageChange);
       };
+    } else {
+      setIsCheckingAuth(false);
     }
-  }, []);
+  }, [navigate, schoolId]);
 
   useEffect(() => {
     if (theme === 'dark') {
@@ -310,6 +360,18 @@ export default function App() {
   };
 
   const userInfo = getUserInfo();
+
+  // Show loading state while checking authentication
+  if (isCheckingAuth) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#E8F0FE] dark:bg-gray-950">
+        <div className="text-center">
+          <div className="mb-4 inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-[#2563EB] border-r-transparent"></div>
+          <p className="text-gray-600 dark:text-gray-400">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   // Show authentication system if not authenticated
   if (!isAuthenticated) {

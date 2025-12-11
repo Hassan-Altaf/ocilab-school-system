@@ -60,6 +60,7 @@ export function Students() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
+  const [isAddingOrUpdating, setIsAddingOrUpdating] = useState(false);
   
   // Class view state (default: Grade 10)
   const [currentViewClass, setCurrentViewClass] = useState<string>('Grade 10');
@@ -139,14 +140,18 @@ export function Students() {
   const [parentPhone, setParentPhone] = useState('');
   const [address, setAddress] = useState('');
   
-  // Class and section data
-  const [classUUID, setClassUUID] = useState<string | null>(null);
-  const [availableSections, setAvailableSections] = useState<Array<{id: string; name: string}>>([
+  // Default sections - simple strings (A, B, C, D)
+  // Backend should accept these as strings, not UUIDs
+  const getDefaultSections = (): Array<{id: string; name: string}> => [
     { id: 'A', name: 'A' },
     { id: 'B', name: 'B' },
     { id: 'C', name: 'C' },
     { id: 'D', name: 'D' },
-  ]);
+  ];
+
+  // Class and section data
+  const [classUUID, setClassUUID] = useState<string | null>(null);
+  const [availableSections, setAvailableSections] = useState<Array<{id: string; name: string}>>(getDefaultSections());
   const [isLoadingClassData, setIsLoadingClassData] = useState(false);
 
   const handleViewProfile = async (student: Student) => {
@@ -204,12 +209,7 @@ export function Students() {
         setParentPhone('');
         setAddress('');
         setClassUUID(null);
-        setAvailableSections([
-          { id: 'A', name: 'A' },
-          { id: 'B', name: 'B' },
-          { id: 'C', name: 'C' },
-          { id: 'D', name: 'D' },
-        ]);
+        setAvailableSections(getDefaultSections());
         setIsLoadingClassData(false);
       }
     } catch (error) {
@@ -265,57 +265,65 @@ export function Students() {
             });
           }
           
-          // Fetch sections for this class
-          if (classInfo.id) {
-            const sections = await adminService.getSectionsByClass(classInfo.id).catch((err) => {
-              if (import.meta.env.DEV) {
-                console.warn('Sections API not available:', err);
-              }
-              return null;
-            });
+          // Use sections from classInfo if available, otherwise try to fetch from class by ID
+          if (isMounted && showAddDialog) {
+            let sections: Array<{id: string; name: string}> = [];
             
-            if (isMounted && showAddDialog) {
-              if (Array.isArray(sections) && sections.length > 0) {
-                // Use API sections with their UUIDs
-                const mappedSections = sections.map(s => ({ id: s.id, name: s.name }));
-                setAvailableSections(mappedSections);
-                
-                if (import.meta.env.DEV) {
-                  console.log('Sections loaded from API:', {
-                    count: mappedSections.length,
-                    sections: mappedSections,
-                  });
+            // First, check if sections are included in classInfo
+            if (Array.isArray(classInfo.sections) && classInfo.sections.length > 0) {
+              sections = classInfo.sections.map(s => ({ id: s.id, name: s.name }));
+              
+              if (import.meta.env.DEV) {
+                console.log('Sections loaded from classInfo:', {
+                  count: sections.length,
+                  sections: sections,
+                });
+              }
+            } else if (classInfo.id) {
+              // Try to fetch class details by ID to get sections
+              try {
+                const classDetails = await adminService.getClassById(classInfo.id);
+                if (classDetails.data && Array.isArray(classDetails.data.sections) && classDetails.data.sections.length > 0) {
+                  sections = classDetails.data.sections.map((s: any) => ({ 
+                    id: s.id || s.uuid || s.name, 
+                    name: s.name || s.sectionName || s.id 
+                  }));
+                  
+                  if (import.meta.env.DEV) {
+                    console.log('Sections loaded from class details:', {
+                      count: sections.length,
+                      sections: sections,
+                    });
+                  }
                 }
-              } else {
-                // If no sections from API, use default sections A, B, C, D
-                setAvailableSections([
-                  { id: 'A', name: 'A' },
-                  { id: 'B', name: 'B' },
-                  { id: 'C', name: 'C' },
-                  { id: 'D', name: 'D' },
-                ]);
+              } catch (err) {
                 if (import.meta.env.DEV) {
-                  console.warn('No sections from API, using defaults:', classInfo.id);
+                  console.warn('Failed to fetch class details for sections:', err);
                 }
               }
             }
-          } else {
-            // If no classInfo.id, still set default sections
-            setAvailableSections([
-              { id: 'A', name: 'A' },
-              { id: 'B', name: 'B' },
-              { id: 'C', name: 'C' },
-              { id: 'D', name: 'D' },
-            ]);
+            
+            // If we have sections from API, use them; otherwise use defaults
+            if (sections.length > 0) {
+              setAvailableSections(sections);
+              
+              if (import.meta.env.DEV) {
+                console.log('Sections loaded from API:', {
+                  count: sections.length,
+                  sections: sections,
+                });
+              }
+            } else {
+              // No sections from API - use default sections A, B, C, D with UUIDs
+              setAvailableSections(getDefaultSections());
+              if (import.meta.env.DEV) {
+                console.warn('No sections from API, using defaults with UUID format');
+              }
+            }
           }
         } else {
-          // If classInfo not found, set default sections but keep trying
-          setAvailableSections([
-            { id: 'A', name: 'A' },
-            { id: 'B', name: 'B' },
-            { id: 'C', name: 'C' },
-            { id: 'D', name: 'D' },
-          ]);
+          // If classInfo not found, no sections available
+          setAvailableSections([]);
           if (import.meta.env.DEV) {
             console.warn('Class info not found for:', selectedClass);
           }
@@ -324,13 +332,8 @@ export function Students() {
         if (import.meta.env.DEV) {
           console.error('Error fetching class data:', error);
         }
-        // On error, use default sections A, B, C, D
-        setAvailableSections([
-          { id: 'A', name: 'A' },
-          { id: 'B', name: 'B' },
-          { id: 'C', name: 'C' },
-          { id: 'D', name: 'D' },
-        ]);
+        // On error, no sections available
+        setAvailableSections([]);
       } finally {
         if (isMounted) {
           setIsLoadingClassData(false);
@@ -552,14 +555,35 @@ export function Students() {
 
     setIsAddingOrUpdating(true);
     try {
+      // Validate sectionId
+      if (!sectionId || sectionId.trim() === '') {
+        toast.error('Section is required. Please select a section.');
+        setIsAddingOrUpdating(false);
+        return;
+      }
+
+      // Get class name for update request - ensure it's not empty
+      const updateClassName = (selectedClass && selectedClass.trim() !== '') 
+        ? selectedClass.trim() 
+        : (currentViewClass && currentViewClass.trim() !== '' ? currentViewClass.trim() : '');
+      
+      // Validate class name is provided when section is provided
+      if (!updateClassName || updateClassName.trim() === '') {
+        toast.error('Class is required when providing a section. Please select a class.');
+        setIsAddingOrUpdating(false);
+        return;
+      }
+
       const requestData: UpdateStudentRequest = {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         dateOfBirth: dob,
         address: address.trim(),
         phone: phone.trim(),
-        sectionId: sectionId.trim(),
+        currentSectionId: sectionId.trim(), // Backend expects 'currentSectionId'
         parentPhone: parentPhone?.trim() || undefined,
+        className: updateClassName, // Backend requires class name when updating section
+        classId: finalClassUUID, // Also send class UUID if available
       };
 
       if (import.meta.env.DEV) {
@@ -578,7 +602,7 @@ export function Students() {
           id: response.data.id || editingStudentId,
           name: response.data.name || `${firstName} ${lastName}`,
           class: response.data.class || selectedClass,
-          section: response.data.section || availableSections.find(s => s.id === sectionId)?.name || '',
+          section: response.data.section || availableSections.find(s => s.id === requestData.currentSectionId)?.name || '',
           status: response.data.status || 'Active',
           attendance: response.data.attendance || 0,
           email: response.data.email || '',
@@ -645,6 +669,19 @@ export function Students() {
   };
 
   const handleAddStudent = async () => {
+    if (import.meta.env.DEV) {
+      console.log('handleAddStudent called', {
+        isEditMode,
+        firstName,
+        lastName,
+        dob,
+        selectedClass,
+        sectionId,
+        phone,
+        address,
+      });
+    }
+
     // If in edit mode, call update instead
     if (isEditMode) {
       handleUpdateStudent();
@@ -690,35 +727,72 @@ export function Students() {
 
     setIsAddingOrUpdating(true);
     try {
+      // Validate sectionId
+      if (!sectionId || sectionId.trim() === '') {
+        toast.error('Section is required. Please select a section.');
+        setIsAddingOrUpdating(false);
+        return;
+      }
+
+      // Validate class information - required when section is provided
+      // Use currentViewClass as fallback if selectedClass is empty
+      const finalClassName = (selectedClass && selectedClass.trim() !== '') 
+        ? selectedClass.trim() 
+        : (currentViewClass && currentViewClass.trim() !== '' ? currentViewClass.trim() : '');
+      
+      if (!finalClassName || finalClassName.trim() === '') {
+        toast.error('Class is required when providing a section. Please select a class.');
+        setIsAddingOrUpdating(false);
+        return;
+      }
+
+      // Ensure class UUID is available
+      if (!finalClassUUID || finalClassUUID.trim() === '') {
+        toast.error('Class information is missing. Please try again.');
+        setIsAddingOrUpdating(false);
+        return;
+      }
+
       // Prepare request data (without email and rollNo - auto-generated by backend)
+      // Backend requires className when section is provided - ALWAYS include it
       const requestData: AddStudentRequest = {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         dateOfBirth: dob,
         address: address.trim(),
         phone: phone.trim(),
-        sectionId: sectionId.trim(),
+        currentSectionId: sectionId.trim(), // Backend expects 'currentSectionId'
         parentPhone: parentPhone?.trim() || undefined,
+        className: finalClassName, // Backend requires class name (e.g., "Grade 10") - REQUIRED when section is provided
+        classId: finalClassUUID.trim(), // Also send class UUID if available
       };
 
       if (import.meta.env.DEV) {
         console.log('Add Student Request:', {
           requestData,
           classUUID: finalClassUUID,
+          className: requestData.className,
           allFields: {
             firstName: requestData.firstName,
             lastName: requestData.lastName,
             dateOfBirth: requestData.dateOfBirth,
             address: requestData.address,
             phone: requestData.phone,
-            sectionId: requestData.sectionId,
+            currentSectionId: requestData.currentSectionId,
+            className: requestData.className,
+            classId: requestData.classId,
             parentPhone: requestData.parentPhone,
           },
         });
+        console.log('Calling adminService.addStudent...');
       }
 
       // Call API to add student with class UUID in header
       const response = await adminService.addStudent(requestData, finalClassUUID);
+
+      if (import.meta.env.DEV) {
+        console.log('Add Student API Response:', response);
+      }
 
       if (response.data) {
         // Show success toast
@@ -751,7 +825,25 @@ export function Students() {
       
       // Parse error message from various possible locations
       if (error instanceof ApiException) {
-        errorMessage = getUserFriendlyError(error);
+        // Handle CORS errors specifically
+        if (error.code === 'CORS_ERROR') {
+          const blockedHeader = error.details?.blockedHeader || 'x-class-uuid';
+          errorMessage = `🚨 CORS Error: Header "${blockedHeader}" is not allowed by backend.\n\n✅ Quick Fix:\nBackend must add "${blockedHeader}" to Access-Control-Allow-Headers.\n\n⚠️ Important: Header name must be lowercase!\n\nExample (Express.js):\napp.use(cors({\n  allowedHeaders: ['Content-Type', 'Authorization', '${blockedHeader}']\n}));`;
+          
+          if (import.meta.env.DEV) {
+            console.error('🚨 CORS Error Details:', {
+              error,
+              details: error.details,
+              url: error.details?.url,
+              blockedHeader: blockedHeader,
+              customHeaders: error.details?.customHeaders,
+              solution: error.details?.solution,
+              note: 'Backend must add lowercase header names to Access-Control-Allow-Headers',
+            });
+          }
+        } else {
+          errorMessage = getUserFriendlyError(error);
+        }
       } else if (error?.response?.data?.message) {
         errorMessage = error.response.data.message;
       } else if (error?.response?.data?.error) {
@@ -782,7 +874,23 @@ export function Students() {
         });
       }
       
-      toast.error(errorMessage);
+      // Show error toast with better formatting for CORS errors
+      if (error instanceof ApiException && error.code === 'CORS_ERROR') {
+        toast.error(
+          <div className="flex flex-col gap-2">
+            <div className="font-semibold">CORS Configuration Error</div>
+            <div className="text-sm">Backend server needs to configure CORS properly.</div>
+            <div className="text-xs text-gray-500 mt-1">
+              Required headers: X-School-UUID, X-Class-UUID
+            </div>
+          </div>,
+          {
+            duration: 8000,
+          }
+        );
+      } else {
+        toast.error(errorMessage);
+      }
     } finally {
       setIsAddingOrUpdating(false);
     }
@@ -834,12 +942,8 @@ export function Students() {
               setParentPhone('');
               setAddress('');
               setClassUUID(null);
-              setAvailableSections([
-                { id: 'A', name: 'A' },
-                { id: 'B', name: 'B' },
-                { id: 'C', name: 'C' },
-                { id: 'D', name: 'D' },
-              ]);
+              // Set default sections initially with UUID format
+              setAvailableSections(getDefaultSections());
               setIsLoadingClassData(false);
               
               // Set class first
@@ -854,19 +958,39 @@ export function Students() {
                 if (classInfo && classInfo.uuid) {
                   setClassUUID(classInfo.uuid);
                   
-                  // Fetch sections
-                  if (classInfo.id) {
-                    const sections = await adminService.getSectionsByClass(classInfo.id).catch(() => null);
-                    if (Array.isArray(sections) && sections.length > 0) {
-                      setAvailableSections(sections.map(s => ({ id: s.id, name: s.name })));
+                  // Use sections from classInfo if available
+                  let sections: Array<{id: string; name: string}> = [];
+                  
+                  if (Array.isArray(classInfo.sections) && classInfo.sections.length > 0) {
+                    sections = classInfo.sections.map(s => ({ id: s.id, name: s.name }));
+                  } else if (classInfo.id) {
+                    // Try to fetch class details by ID to get sections
+                    try {
+                      const classDetails = await adminService.getClassById(classInfo.id);
+                      if (classDetails.data && Array.isArray(classDetails.data.sections) && classDetails.data.sections.length > 0) {
+                        sections = classDetails.data.sections.map((s: any) => ({ 
+                          id: s.id || s.uuid || s.name, 
+                          name: s.name || s.sectionName || s.id 
+                        }));
+                      }
+                    } catch (err) {
+                      if (import.meta.env.DEV) {
+                        console.warn('Failed to fetch class details for sections:', err);
+                      }
                     }
                   }
+                  
+                  // If we have sections from API, use them; otherwise keep defaults
+                  if (sections.length > 0) {
+                    setAvailableSections(sections);
+                  }
+                  // If no sections from API, defaults (A, B, C, D) will remain
                 }
               } catch (error) {
                 if (import.meta.env.DEV) {
                   console.warn('Failed to pre-fetch class data:', error);
                 }
-                // Continue anyway - useEffect will retry
+                // Continue anyway - defaults sections will be used
               }
             }} 
             className="bg-[#0A66C2] hover:bg-[#0052A3]"
@@ -1194,9 +1318,18 @@ export function Students() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={handleCloseDialogDirect}>Cancel</Button>
-            <Button className="bg-[#0A66C2] hover:bg-[#0052A3]" onClick={handleAddStudent}>
-              {isEditMode ? 'Update Student' : 'Add Student'}
+            <Button variant="outline" onClick={handleCloseDialogDirect} disabled={isAddingOrUpdating}>
+              Cancel
+            </Button>
+            <Button 
+              className="bg-[#0A66C2] hover:bg-[#0052A3]" 
+              onClick={handleAddStudent}
+              disabled={isAddingOrUpdating}
+            >
+              {isAddingOrUpdating 
+                ? (isEditMode ? 'Updating...' : 'Adding...') 
+                : (isEditMode ? 'Update Student' : 'Add Student')
+              }
             </Button>
           </DialogFooter>
         </DialogContent>

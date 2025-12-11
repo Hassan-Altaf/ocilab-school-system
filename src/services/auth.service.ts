@@ -52,6 +52,7 @@ class AuthService {
       requestBody.deviceInfo = request.deviceInfo;
     }
 
+    // Use generic /auth/login endpoint (backend expects this)
     const response = await apiClient.post<LoginResponse>(
       API_ENDPOINTS.auth.login,
       requestBody
@@ -115,6 +116,81 @@ class AuthService {
     // If not first login and remember me is checked, tokens will be saved after OTP
 
     return loginData;
+  }
+
+  /**
+   * School Login
+   */
+  async schoolLogin(request: { email: string; password: string }): Promise<LoginResponse & { school?: { id?: string; uuid?: string } }> {
+    // Validate inputs
+    if (!request.email || !request.password) {
+      throw new Error('Email and password are required');
+    }
+
+    // Prepare request body - backend expects 'schoolEmail' and 'password'
+    // Note: Don't trim password as it might contain intentional spaces or special characters
+    const requestBody: any = {
+      schoolEmail: request.email.trim(),
+      password: String(request.password), // Convert to string but don't trim password
+    };
+
+    // Validate password is not empty
+    if (!requestBody.password || requestBody.password.length === 0) {
+      throw new Error('Password cannot be empty');
+    }
+
+    // Debug: Log request body in development
+    if (import.meta.env.DEV) {
+      const token = tokenStorage.getAccessToken();
+      console.log('School Login Request Details:', {
+        endpoint: API_ENDPOINTS.auth.schoolLogin,
+        requestBody: {
+          schoolEmail: requestBody.schoolEmail,
+          password: '***', // Hide password
+          passwordLength: requestBody.password.length,
+          passwordIsEmpty: !requestBody.password,
+        },
+        headers: {
+          hasToken: !!token,
+          tokenPrefix: token ? token.substring(0, 20) + '...' : 'none',
+        },
+      });
+    }
+
+    try {
+      const response = await apiClient.post<LoginResponse & { school?: { id?: string; uuid?: string } }>(
+        API_ENDPOINTS.auth.schoolLogin,
+        requestBody
+      );
+
+      if (!response.data) {
+        throw new Error('Invalid response from server');
+      }
+
+      // Debug: Log response in development
+      if (import.meta.env.DEV) {
+        console.log('School Login Response:', {
+          hasTokens: !!response.data.tokens,
+          hasUser: !!response.data.user,
+          hasSchool: !!response.data.school,
+          schoolId: (response.data as any).school?.id || (response.data as any).school?.uuid || (response.data as any).schoolId,
+        });
+      }
+
+      return response.data;
+    } catch (error: any) {
+      // Enhanced error logging
+      if (import.meta.env.DEV) {
+        console.error('School Login Error:', {
+          error,
+          message: error?.message,
+          statusCode: error?.statusCode,
+          details: error?.details,
+          requestBody: { ...requestBody, password: '***' },
+        });
+      }
+      throw error;
+    }
   }
 
   /**

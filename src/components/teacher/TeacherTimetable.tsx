@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Calendar, Clock, MapPin, Users, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
+import { teacherService } from '../../services';
+import { toast } from 'sonner@2.0.3';
+import { ApiException, getUserFriendlyError } from '../../utils/errors';
 
 interface ClassPeriod {
   id: number;
@@ -71,9 +74,44 @@ const timeSlots = [
 
 export function TeacherTimetable() {
   const [currentWeek, setCurrentWeek] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [schedule, setSchedule] = useState<any[]>([]);
+
+  useEffect(() => {
+    loadSchedule();
+  }, []);
+
+  const loadSchedule = async () => {
+    try {
+      setLoading(true);
+      const response = await teacherService.getWeeklySchedule();
+      setSchedule(response.data?.schedule || []);
+    } catch (error: any) {
+      console.error('Failed to load schedule:', error);
+      toast.error(error instanceof ApiException ? getUserFriendlyError(error) : 'Failed to load schedule');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const weekSchedule = schedule.map((daySchedule: any) => ({
+    day: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][daySchedule.dayOfWeek],
+    date: new Date().toISOString().split('T')[0],
+    periods: daySchedule.periods || [],
+  }));
 
   const totalClasses = weekSchedule.reduce((sum, day) => sum + day.periods.length, 0);
   const totalHours = weekSchedule.reduce((sum, day) => sum + (day.periods.length * 1), 0);
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="animate-pulse">
+          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-64 mb-2"></div>
+        </div>
+      </div>
+    );
+  }
 
   const getColorClasses = (color: string) => {
     const colors = {
@@ -197,17 +235,19 @@ export function TeacherTimetable() {
                     return (
                       <div key={`${day.day}-${time}`} className="col-span-1">
                         {period ? (
-                          <Card className={`p-3 border-2 ${getColorClasses(period.color)} h-full`}>
+                          <Card className={`p-3 border-2 bg-blue-100 border-blue-300 text-blue-900 dark:bg-blue-900/20 dark:border-blue-700 dark:text-blue-200 h-full`}>
                             <div className="space-y-1">
-                              <p className="text-sm">{period.subject}</p>
-                              <p className="text-xs opacity-80">{period.class}</p>
-                              <div className="flex items-center gap-1 text-xs opacity-80">
-                                <MapPin className="w-3 h-3" />
-                                {period.room}
-                              </div>
+                              <p className="text-sm">{period.subject || 'Subject'}</p>
+                              <p className="text-xs opacity-80">{period.className || period.class} {period.sectionName ? `- ${period.sectionName}` : ''}</p>
+                              {period.room && (
+                                <div className="flex items-center gap-1 text-xs opacity-80">
+                                  <MapPin className="w-3 h-3" />
+                                  {period.room}
+                                </div>
+                              )}
                               <div className="flex items-center gap-1 text-xs opacity-80">
                                 <Clock className="w-3 h-3" />
-                                {period.duration}
+                                {period.startTime} - {period.endTime}
                               </div>
                             </div>
                           </Card>
@@ -234,27 +274,25 @@ export function TeacherTimetable() {
                 </div>
                 <div className="space-y-2">
                   {day.periods.length > 0 ? (
-                    day.periods.map((period) => (
-                      <Card key={period.id} className={`p-4 border-2 ${getColorClasses(period.color)}`}>
+                    day.periods.map((period: any) => (
+                      <Card key={period.id} className={`p-4 border-2 bg-blue-100 border-blue-300 text-blue-900 dark:bg-blue-900/20 dark:border-blue-700 dark:text-blue-200`}>
                         <div className="flex items-start justify-between mb-2">
                           <div>
-                            <p className="text-sm mb-1">{period.subject}</p>
-                            <p className="text-xs opacity-80">{period.class}</p>
+                            <p className="text-sm mb-1">{period.subject || 'Subject'}</p>
+                            <p className="text-xs opacity-80">{period.className || period.class} {period.sectionName ? `- ${period.sectionName}` : ''}</p>
                           </div>
                           <Badge variant="outline" className="text-xs">
                             {period.startTime} - {period.endTime}
                           </Badge>
                         </div>
-                        <div className="flex items-center gap-4 text-xs opacity-80">
-                          <span className="flex items-center gap-1">
-                            <MapPin className="w-3 h-3" />
-                            {period.room}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Users className="w-3 h-3" />
-                            {period.students} students
-                          </span>
-                        </div>
+                        {period.room && (
+                          <div className="flex items-center gap-4 text-xs opacity-80">
+                            <span className="flex items-center gap-1">
+                              <MapPin className="w-3 h-3" />
+                              {period.room}
+                            </span>
+                          </div>
+                        )}
                       </Card>
                     ))
                   ) : (

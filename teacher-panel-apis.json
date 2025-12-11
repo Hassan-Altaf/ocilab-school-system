@@ -1,0 +1,1112 @@
+{
+  "title": "Teacher Panel - Complete API Documentation",
+  "version": "1.0.0",
+  "baseUrl": "http://localhost:3000/v1",
+  "description": "Complete list of all Teacher Panel APIs with endpoints, methods, payloads, headers, and instructions",
+  "authentication": {
+    "type": "Bearer Token",
+    "header": "Authorization: Bearer {token}",
+    "note": "All teacher endpoints require JWT token in Authorization header with TeacherGuard"
+  },
+  "apis": [
+    {
+      "category": "Profile & Dashboard",
+      "description": "Teacher profile management and dashboard APIs",
+      "endpoints": [
+        {
+          "id": "TEACHER_PROFILE_01",
+          "name": "Get Profile",
+          "method": "GET",
+          "route": "/teacher/profile",
+          "description": "Get current teacher profile information",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null,
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "id": "uuid",
+                "firstName": "John",
+                "lastName": "Doe",
+                "email": "teacher@example.com",
+                "phone": "+1234567890",
+                "address": "123 Street",
+                "teacher": {
+                  "employeeId": "EMP001",
+                  "employmentStatus": "ACTIVE",
+                  "experienceYears": 5,
+                  "qualification": "M.Ed",
+                  "specialization": "Mathematics"
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_PROFILE_02",
+          "name": "Update Profile",
+          "method": "PATCH",
+          "route": "/teacher/profile",
+          "description": "Update teacher profile information (limited fields - address, contact, locale, timezone, experience, specialization, dateOfBirth)",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "optional": ["address", "phone", "preferredLocale", "timezone", "experienceYears", "specialization", "dateOfBirth"],
+            "example": {
+              "address": "456 New Street",
+              "phone": "+1234567890",
+              "preferredLocale": "en-US",
+              "timezone": "America/New_York",
+              "experienceYears": 6,
+              "specialization": "Mathematics and Physics",
+              "dateOfBirth": "1990-01-15"
+            },
+            "notes": [
+              "address max length: 200 characters",
+              "phone max length: 15 characters",
+              "preferredLocale max length: 10 characters",
+              "timezone max length: 64 characters",
+              "experienceYears must be >= 0",
+              "dateOfBirth must be in ISO 8601 format (YYYY-MM-DD)"
+            ]
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "message": "Profile updated successfully",
+                "data": {}
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_PROFILE_03",
+          "name": "Get Dashboard",
+          "method": "GET",
+          "route": "/teacher/dashboard",
+          "description": "Get teacher dashboard data (performance snapshot, workload queue, upcoming schedule/exams)",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null,
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "performance": {},
+                "workload": {},
+                "upcomingSchedule": [],
+                "upcomingExams": []
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_PROFILE_04",
+          "name": "Get Weekly Schedule",
+          "method": "GET",
+          "route": "/teacher/schedule/weekly",
+          "description": "Get weekly schedule/timetable for the teacher",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null,
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "schedule": [],
+                "weekStart": "2025-01-13",
+                "weekEnd": "2025-01-19"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "category": "Assignments",
+      "description": "Teacher assignment management APIs (create, view, update, grade assignments)",
+      "endpoints": [
+        {
+          "id": "TEACHER_ASSIGNMENT_01",
+          "name": "List Assignments",
+          "method": "GET",
+          "route": "/teacher/assignments",
+          "description": "Get list of assignments with optional filters (class, section, subject, search, pagination)",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "queryParams": {
+            "optional": ["classId", "sectionId", "subjectId", "search", "page", "limit"],
+            "example": "?classId=uuid&subjectId=uuid&search=homework&page=1&limit=10",
+            "notes": [
+              "page: default 1, min 1",
+              "limit: default 10, min 1, max 50"
+            ]
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "assignments": [],
+                "pagination": {
+                  "page": 1,
+                  "limit": 10,
+                  "total": 50
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_ASSIGNMENT_02",
+          "name": "Get Assignment Statistics",
+          "method": "GET",
+          "route": "/teacher/assignments/statistics",
+          "description": "Get assignment statistics (total, pending grading, graded counts)",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null,
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "totalAssignments": 50,
+                "pendingGrading": 15,
+                "graded": 35,
+                "totalSubmissions": 1200
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_ASSIGNMENT_03",
+          "name": "Create Assignment",
+          "method": "POST",
+          "route": "/teacher/assignments",
+          "description": "Create a new assignment for students",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "required": ["classId", "subjectId", "title", "totalMarks"],
+            "optional": ["sectionId", "description", "dueDate"],
+            "example": {
+              "classId": "uuid-here",
+              "sectionId": "uuid-here",
+              "subjectId": "uuid-here",
+              "title": "Math Homework Chapter 5",
+              "description": "Complete exercises 1-10 from chapter 5",
+              "dueDate": "2025-01-25T23:59:59Z",
+              "totalMarks": 100
+            },
+            "notes": [
+              "title max length: 150 characters",
+              "dueDate must be in ISO 8601 format",
+              "totalMarks must be >= 0, max 2 decimal places"
+            ]
+          },
+          "response": {
+            "success": {
+              "code": 201,
+              "body": {
+                "id": "uuid",
+                "title": "Math Homework Chapter 5",
+                "createdAt": "2025-01-15T10:00:00Z"
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_ASSIGNMENT_04",
+          "name": "Get Assignment Details",
+          "method": "GET",
+          "route": "/teacher/assignments/:id",
+          "description": "Get detailed information about a specific assignment including submissions",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "pathParams": {
+            "required": ["id"],
+            "example": "/teacher/assignments/uuid-here"
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "id": "uuid",
+                "title": "Math Homework Chapter 5",
+                "description": "Complete exercises 1-10",
+                "totalMarks": 100,
+                "dueDate": "2025-01-25T23:59:59Z",
+                "submissions": []
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_ASSIGNMENT_05",
+          "name": "Update Assignment",
+          "method": "PATCH",
+          "route": "/teacher/assignments/:id",
+          "description": "Update an existing assignment",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "pathParams": {
+            "required": ["id"],
+            "example": "/teacher/assignments/uuid-here"
+          },
+          "payload": {
+            "optional": ["classId", "sectionId", "subjectId", "title", "description", "dueDate", "totalMarks"],
+            "example": {
+              "title": "Math Homework Chapter 5 (Updated)",
+              "description": "Complete exercises 1-15 from chapter 5",
+              "dueDate": "2025-01-27T23:59:59Z",
+              "totalMarks": 150
+            },
+            "notes": [
+              "title max length: 150 characters",
+              "dueDate must be in ISO 8601 format",
+              "totalMarks must be >= 0, max 2 decimal places"
+            ]
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "message": "Assignment updated successfully",
+                "data": {}
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_ASSIGNMENT_06",
+          "name": "Grade Assignment",
+          "method": "POST",
+          "route": "/teacher/assignments/:id/grade",
+          "description": "Grade assignment submissions (bulk grading with feedback)",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "pathParams": {
+            "required": ["id"],
+            "example": "/teacher/assignments/uuid-here/grade"
+          },
+          "payload": {
+            "required": ["entries"],
+            "example": {
+              "entries": [
+                {
+                  "studentId": "uuid-here",
+                  "marksObtained": 85.5,
+                  "status": "GRADED",
+                  "submittedAt": "2025-01-24T10:00:00Z",
+                  "feedback": "Good work! Well explained solutions."
+                },
+                {
+                  "studentId": "uuid-here-2",
+                  "marksObtained": 92.0,
+                  "status": "GRADED",
+                  "submittedAt": "2025-01-23T14:30:00Z",
+                  "feedback": "Excellent work!"
+                }
+              ]
+            },
+            "notes": [
+              "entries array must have at least 1 item",
+              "marksObtained must be >= 0, max 2 decimal places",
+              "status: SUBMITTED, GRADED, LATE",
+              "submittedAt must be in ISO 8601 format",
+              "feedback max length: 500 characters"
+            ]
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "message": "Assignments graded successfully",
+                "gradedCount": 2
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_ASSIGNMENT_07",
+          "name": "Download All Submissions",
+          "method": "GET",
+          "route": "/teacher/assignments/:id/download",
+          "description": "Download all submissions for an assignment as a zip file",
+          "headers": {
+            "Authorization": "Bearer {token}"
+          },
+          "pathParams": {
+            "required": ["id"],
+            "example": "/teacher/assignments/uuid-here/download"
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "contentType": "application/zip",
+              "disposition": "attachment; filename=\"assignments-{id}.zip\""
+            }
+          }
+        },
+        {
+          "id": "TEACHER_ASSIGNMENT_08",
+          "name": "Download Student Submission",
+          "method": "GET",
+          "route": "/teacher/assignments/:id/download/:studentId",
+          "description": "Download a specific student's submission for an assignment",
+          "headers": {
+            "Authorization": "Bearer {token}"
+          },
+          "pathParams": {
+            "required": ["id", "studentId"],
+            "example": "/teacher/assignments/uuid-here/download/uuid-student"
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "contentType": "application/octet-stream",
+              "disposition": "attachment; filename=\"submission-{studentId}.{ext}\""
+            }
+          }
+        }
+      ]
+    },
+    {
+      "category": "Classroom",
+      "description": "Teacher classroom management APIs (classes, students, timetable, auxiliary info)",
+      "endpoints": [
+        {
+          "id": "TEACHER_CLASSROOM_01",
+          "name": "Get Assigned Classes",
+          "method": "GET",
+          "route": "/teacher/classes",
+          "description": "Get all classes and sections assigned to the teacher",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null,
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "classes": [
+                  {
+                    "classId": "uuid",
+                    "className": "Grade 10",
+                    "sections": [],
+                    "subjects": []
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_CLASSROOM_02",
+          "name": "Get Class Roster",
+          "method": "GET",
+          "route": "/teacher/classes/:classId/students",
+          "description": "Get list of students in a class/section (roster with guardian info)",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "pathParams": {
+            "required": ["classId"],
+            "example": "/teacher/classes/uuid-here/students"
+          },
+          "queryParams": {
+            "optional": ["sectionId"],
+            "example": "?sectionId=uuid-here",
+            "notes": [
+              "If sectionId not provided, returns all students in the class"
+            ]
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "students": [
+                  {
+                    "id": "uuid",
+                    "firstName": "John",
+                    "lastName": "Doe",
+                    "rollNumber": "R001",
+                    "guardians": []
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_CLASSROOM_03",
+          "name": "Get Timetable",
+          "method": "GET",
+          "route": "/teacher/timetable",
+          "description": "Get teacher's timetable/schedule (day-wise timetable feed)",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "queryParams": {
+            "optional": ["dayOfWeek"],
+            "example": "?dayOfWeek=1",
+            "notes": [
+              "dayOfWeek: 0 = Sunday, 1 = Monday, ..., 6 = Saturday",
+              "If not provided, returns all days"
+            ]
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "timetable": [
+                  {
+                    "dayOfWeek": 1,
+                    "periods": []
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_CLASSROOM_04",
+          "name": "Get Auxiliary Snapshot",
+          "method": "GET",
+          "route": "/teacher/classes/:classId/auxiliary",
+          "description": "Get auxiliary information for a class (transport, hostel, fee insights)",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "pathParams": {
+            "required": ["classId"],
+            "example": "/teacher/classes/uuid-here/auxiliary"
+          },
+          "queryParams": {
+            "optional": ["sectionId"],
+            "example": "?sectionId=uuid-here"
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "transport": {},
+                "hostel": {},
+                "fees": {}
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "category": "Exams",
+      "description": "Teacher exam management APIs (schedule, marks entry)",
+      "endpoints": [
+        {
+          "id": "TEACHER_EXAM_01",
+          "name": "Get Exam Schedule",
+          "method": "GET",
+          "route": "/teacher/exams/schedule",
+          "description": "Get upcoming exam schedule filtered to teacher's subjects",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null,
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "exams": [
+                  {
+                    "id": "uuid",
+                    "name": "Mid-Term Exam",
+                    "startDate": "2025-02-01",
+                    "endDate": "2025-02-15",
+                    "subjects": []
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_EXAM_02",
+          "name": "Get Students for Marks Entry",
+          "method": "GET",
+          "route": "/teacher/exams/students",
+          "description": "Get list of students for marks entry (filtered by class, subject, section, exam)",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "queryParams": {
+            "required": ["classId", "subjectId"],
+            "optional": ["sectionId", "examId"],
+            "example": "?classId=uuid&subjectId=uuid&sectionId=uuid&examId=uuid",
+            "notes": [
+              "Returns students enrolled in the specified class/subject/section"
+            ]
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "students": [
+                  {
+                    "id": "uuid",
+                    "firstName": "John",
+                    "lastName": "Doe",
+                    "rollNumber": "R001"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_EXAM_03",
+          "name": "View Exam Marks",
+          "method": "GET",
+          "route": "/teacher/exams/:examId/subjects/:subjectId/marks",
+          "description": "View existing marks for an exam and subject",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "pathParams": {
+            "required": ["examId", "subjectId"],
+            "example": "/teacher/exams/uuid-exam/subjects/uuid-subject/marks"
+          },
+          "queryParams": {
+            "optional": ["classId", "sectionId"],
+            "example": "?classId=uuid&sectionId=uuid"
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "examId": "uuid",
+                "subjectId": "uuid",
+                "marks": [
+                  {
+                    "studentId": "uuid",
+                    "obtainedMarks": 85.5,
+                    "totalMarks": 100,
+                    "percentage": 85.5
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_EXAM_04",
+          "name": "Submit Exam Marks",
+          "method": "POST",
+          "route": "/teacher/exams/:examId/subjects/:subjectId/marks",
+          "description": "Submit exam marks for students (bulk entry with validations)",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "pathParams": {
+            "required": ["examId", "subjectId"],
+            "example": "/teacher/exams/uuid-exam/subjects/uuid-subject/marks"
+          },
+          "payload": {
+            "required": ["entries"],
+            "example": {
+              "entries": [
+                {
+                  "studentId": "uuid-here",
+                  "obtainedMarks": 85.5,
+                  "totalMarks": 100,
+                  "percentage": 85.5,
+                  "status": "PASSED"
+                },
+                {
+                  "studentId": "uuid-here-2",
+                  "obtainedMarks": 92.0,
+                  "totalMarks": 100,
+                  "percentage": 92.0,
+                  "status": "PASSED"
+                }
+              ]
+            },
+            "notes": [
+              "entries array must have at least 1 item",
+              "obtainedMarks must be >= 0, max 2 decimal places",
+              "totalMarks must be >= 0, max 2 decimal places (optional)",
+              "percentage must be 0-100 (optional, will be calculated if not provided)",
+              "status: PASSED, FAILED, ABSENT, PENDING (optional)"
+            ]
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "message": "Marks submitted successfully",
+                "submittedCount": 2
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "category": "Communication",
+      "description": "Teacher communication APIs (messages, announcements)",
+      "endpoints": [
+        {
+          "id": "TEACHER_COMM_01",
+          "name": "List Messages",
+          "method": "GET",
+          "route": "/teacher/communications/messages",
+          "description": "Get all messages (sent and received) for the teacher",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": null,
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "messages": [
+                  {
+                    "id": "uuid",
+                    "subject": "Question about assignment",
+                    "content": "I have a question...",
+                    "sender": {},
+                    "recipient": {},
+                    "status": "READ",
+                    "createdAt": "2025-01-15T10:00:00Z"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_COMM_02",
+          "name": "Get Message",
+          "method": "GET",
+          "route": "/teacher/communications/messages/:id",
+          "description": "Get detailed information about a specific message",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "pathParams": {
+            "required": ["id"],
+            "example": "/teacher/communications/messages/uuid-here"
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "id": "uuid",
+                "subject": "Question about assignment",
+                "content": "I have a question...",
+                "attachments": [],
+                "status": "READ",
+                "readAt": "2025-01-15T11:00:00Z"
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_COMM_03",
+          "name": "Send Message",
+          "method": "POST",
+          "route": "/teacher/communications/messages",
+          "description": "Send a 1:1 message to a student, parent, or other teacher/admin",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "required": ["recipientUserId", "content"],
+            "optional": ["subject", "priority", "attachments"],
+            "example": {
+              "recipientUserId": "uuid-here",
+              "subject": "Assignment Feedback",
+              "content": "Your assignment was excellent! Keep up the good work.",
+              "priority": "NORMAL",
+              "attachments": [
+                {
+                  "fileName": "feedback.pdf",
+                  "fileUrl": "https://example.com/files/feedback.pdf",
+                  "fileType": "application/pdf",
+                  "fileSize": 1024000
+                }
+              ]
+            },
+            "notes": [
+              "subject max length: 150 characters",
+              "priority: HIGH, NORMAL, LOW (optional, default: NORMAL)",
+              "attachments array optional, each attachment must have fileName, fileUrl, fileSize (in bytes)"
+            ]
+          },
+          "response": {
+            "success": {
+              "code": 201,
+              "body": {
+                "id": "uuid",
+                "message": "Message sent successfully",
+                "sentAt": "2025-01-15T10:00:00Z"
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_COMM_04",
+          "name": "Create Announcement",
+          "method": "POST",
+          "route": "/teacher/communications/announcements",
+          "description": "Create a class announcement with targeting and optional scheduling",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "required": ["title", "content", "category", "targetAudience"],
+            "optional": ["priority", "status", "scheduledAt", "targets"],
+            "example": {
+              "title": "Parent-Teacher Meeting",
+              "content": "There will be a parent-teacher meeting on January 20, 2025 at 2:00 PM.",
+              "category": "GENERAL",
+              "priority": "HIGH",
+              "targetAudience": "STUDENTS_AND_PARENTS",
+              "status": "SCHEDULED",
+              "scheduledAt": "2025-01-18T00:00:00Z",
+              "targets": [
+                {
+                  "classId": "uuid-here",
+                  "sectionId": "uuid-here"
+                }
+              ]
+            },
+            "notes": [
+              "title max length: 150 characters",
+              "category: GENERAL, EXAM, FEE, HOLIDAY, EVENT, OTHER",
+              "priority: HIGH, NORMAL, LOW (optional)",
+              "targetAudience: STUDENTS, PARENTS, STUDENTS_AND_PARENTS, ALL",
+              "status: DRAFT, SCHEDULED, PUBLISHED (optional)",
+              "scheduledAt must be in ISO 8601 format (for scheduled announcements)",
+              "targets array optional - if not provided, targets all assigned classes"
+            ]
+          },
+          "response": {
+            "success": {
+              "code": 201,
+              "body": {
+                "id": "uuid",
+                "title": "Parent-Teacher Meeting",
+                "message": "Announcement created successfully",
+                "createdAt": "2025-01-15T10:00:00Z"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "category": "Attendance",
+      "description": "Teacher attendance management APIs (mark attendance, view records, update)",
+      "endpoints": [
+        {
+          "id": "TEACHER_ATTENDANCE_01",
+          "name": "List Attendance",
+          "method": "GET",
+          "route": "/teacher/attendance",
+          "description": "Get attendance records with filters (class, section, date, student)",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "queryParams": {
+            "required": ["classId", "sectionId"],
+            "optional": ["attendanceDate", "studentId"],
+            "example": "?classId=uuid&sectionId=uuid&attendanceDate=2025-01-15&studentId=uuid",
+            "notes": [
+              "attendanceDate must be in ISO 8601 format (YYYY-MM-DD)",
+              "If attendanceDate not provided, returns all dates"
+            ]
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "attendance": [
+                  {
+                    "id": "uuid",
+                    "studentId": "uuid",
+                    "attendanceDate": "2025-01-15",
+                    "status": "PRESENT",
+                    "remarks": "On time"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_ATTENDANCE_02",
+          "name": "Get Students for Attendance",
+          "method": "GET",
+          "route": "/teacher/attendance/students",
+          "description": "Get students list for attendance marking (returns all students with default PRESENT status and current date)",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "queryParams": {
+            "required": ["classId"],
+            "optional": ["sectionId"],
+            "example": "?classId=uuid&sectionId=uuid",
+            "notes": [
+              "Returns students with default PRESENT status",
+              "Use this endpoint before marking attendance to get the student list"
+            ]
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "students": [
+                  {
+                    "id": "uuid",
+                    "firstName": "John",
+                    "lastName": "Doe",
+                    "rollNumber": "R001",
+                    "defaultStatus": "PRESENT"
+                  }
+                ],
+                "defaultDate": "2025-01-15"
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_ATTENDANCE_03",
+          "name": "Mark Attendance",
+          "method": "POST",
+          "route": "/teacher/attendance",
+          "description": "Mark attendance for students (bulk marking with date override option)",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "payload": {
+            "required": ["classId", "entries"],
+            "optional": ["sectionId", "attendanceDate", "allowOverride"],
+            "example": {
+              "classId": "uuid-here",
+              "sectionId": "uuid-here",
+              "attendanceDate": "2025-01-15",
+              "allowOverride": false,
+              "entries": [
+                {
+                  "studentId": "uuid-here",
+                  "status": "PRESENT",
+                  "remarks": "On time"
+                },
+                {
+                  "studentId": "uuid-here-2",
+                  "status": "ABSENT",
+                  "remarks": "Sick leave"
+                },
+                {
+                  "studentId": "uuid-here-3",
+                  "status": "LATE",
+                  "remarks": "Arrived 10 minutes late"
+                }
+              ]
+            },
+            "notes": [
+              "entries array must have at least 1 item",
+              "status: PRESENT, ABSENT, LATE, HALF_DAY, EXCUSED",
+              "attendanceDate must be in ISO 8601 format (YYYY-MM-DD), defaults to current date if not provided",
+              "allowOverride: if true, allows marking attendance for past dates or overriding existing records",
+              "remarks optional"
+            ]
+          },
+          "response": {
+            "success": {
+              "code": 201,
+              "body": {
+                "message": "Attendance marked successfully",
+                "markedCount": 3,
+                "attendanceDate": "2025-01-15"
+              }
+            }
+          }
+        },
+        {
+          "id": "TEACHER_ATTENDANCE_04",
+          "name": "Update Attendance",
+          "method": "PATCH",
+          "route": "/teacher/attendance/:id",
+          "description": "Update an existing attendance record",
+          "headers": {
+            "Authorization": "Bearer {token}",
+            "Content-Type": "application/json"
+          },
+          "pathParams": {
+            "required": ["id"],
+            "example": "/teacher/attendance/uuid-here"
+          },
+          "payload": {
+            "optional": ["status", "attendanceDate", "remarks"],
+            "example": {
+              "status": "PRESENT",
+              "attendanceDate": "2025-01-15",
+              "remarks": "Updated: Student arrived on time"
+            },
+            "notes": [
+              "status: PRESENT, ABSENT, LATE, HALF_DAY, EXCUSED",
+              "attendanceDate must be in ISO 8601 format (YYYY-MM-DD)"
+            ]
+          },
+          "response": {
+            "success": {
+              "code": 200,
+              "body": {
+                "message": "Attendance updated successfully",
+                "data": {}
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "commonHeaders": {
+    "required": {
+      "Authorization": "Bearer {token}",
+      "Content-Type": "application/json"
+    },
+    "notes": [
+      "All teacher endpoints require Authorization header with JWT token",
+      "Token is obtained from login endpoint (auth module)",
+      "Content-Type is required for POST/PATCH requests",
+      "All endpoints are protected by JwtAuthGuard + TeacherGuard"
+    ]
+  },
+  "errorResponses": {
+    "401": {
+      "message": "Unauthorized - Invalid or missing token",
+      "body": {
+        "statusCode": 401,
+        "message": "Unauthorized"
+      }
+    },
+    "403": {
+      "message": "Forbidden - Teacher access required",
+      "body": {
+        "statusCode": 403,
+        "message": "Teacher access required"
+      }
+    },
+    "404": {
+      "message": "Not Found - Resource not found",
+      "body": {
+        "statusCode": 404,
+        "message": "Resource not found"
+      }
+    },
+    "400": {
+      "message": "Bad Request - Validation error",
+      "body": {
+        "statusCode": 400,
+        "message": ["validation error messages"],
+        "error": "Bad Request"
+      }
+    }
+  },
+  "enums": {
+    "AttendanceStatus": [
+      "PRESENT",
+      "ABSENT",
+      "LATE",
+      "HALF_DAY",
+      "EXCUSED"
+    ],
+    "AssignmentSubmissionStatus": [
+      "SUBMITTED",
+      "GRADED",
+      "LATE"
+    ],
+    "ExamMarkStatus": [
+      "PASSED",
+      "FAILED",
+      "ABSENT",
+      "PENDING"
+    ],
+    "Priority": [
+      "HIGH",
+      "NORMAL",
+      "LOW"
+    ],
+    "AnnouncementCategory": [
+      "GENERAL",
+      "EXAM",
+      "FEE",
+      "HOLIDAY",
+      "EVENT",
+      "OTHER"
+    ],
+    "AnnouncementTargetAudience": [
+      "STUDENTS",
+      "PARENTS",
+      "STUDENTS_AND_PARENTS",
+      "ALL"
+    ],
+    "AnnouncementStatus": [
+      "DRAFT",
+      "SCHEDULED",
+      "PUBLISHED"
+    ]
+  },
+  "notes": [
+    "Base URL includes /v1 prefix",
+    "All dates should be in ISO 8601 format (YYYY-MM-DD for dates, YYYY-MM-DDTHH:mm:ssZ for datetime)",
+    "UUIDs are required for all ID parameters",
+    "Pagination: page starts from 1, limit has max values as specified",
+    "Token expires after configured time, use refresh token to get new access token",
+    "All teacher endpoints automatically filter data for the logged-in teacher's assigned classes/subjects",
+    "Teachers can only access data for their assigned classes, sections, and subjects",
+    "Bulk operations (grading, marks entry, attendance) support multiple entries in a single request",
+    "File downloads return binary data with appropriate content-type headers",
+    "All optional query parameters can be omitted from the request"
+  ]
+}
+

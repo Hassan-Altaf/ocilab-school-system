@@ -35,23 +35,73 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { adminService } from '../../services';
 import { Teacher, AddTeacherRequest, UpdateTeacherRequest } from '../../types/teacher.types';
 import { ApiException, getUserFriendlyError } from '../../utils/errors';
+import { schoolStorage } from '../../utils/storage';
 
-const normalizeTeacher = (t: any): Teacher => ({
-  id: t?.id?.toString?.() || t?.uuid?.toString?.() || `${Date.now()}`,
-  name: t?.name || `${t?.firstName || ''} ${t?.lastName || ''}`.trim() || 'Unnamed Teacher',
-  employeeId: t?.employeeId || '',
-  subject: t?.subject || '',
-  qualification: t?.qualification || '',
-  experience: t?.experience || '',
-  email: t?.email || '',
-  phone: t?.phone || '',
-  classes: typeof t?.classes === 'number' ? t.classes : 0,
-  performance: typeof t?.performance === 'number' ? t.performance : 0,
-  status: (t?.status as Teacher['status']) || 'Active',
-  specialization: t?.specialization || '',
-  joiningDate: t?.joiningDate || '',
-  address: t?.address || '',
-});
+const normalizeTeacher = (t: any): Teacher => {
+  if (!t) {
+    console.warn('normalizeTeacher: Received null/undefined teacher data');
+    return {
+      id: `${Date.now()}`,
+      name: 'Unnamed Teacher',
+      employeeId: '',
+      subject: '',
+      qualification: '',
+      experience: '',
+      email: '',
+      phone: '',
+      classes: 0,
+      performance: 0,
+      status: 'Active',
+      specialization: '',
+      joiningDate: '',
+      address: '',
+    };
+  }
+
+  // Prioritize firstName/lastName from backend, fallback to name field
+  const firstName = t?.firstName || '';
+  const lastName = t?.lastName || '';
+  const fullName = firstName && lastName 
+    ? `${firstName} ${lastName}`.trim()
+    : (t?.name || 'Unnamed Teacher');
+  
+  const normalized = {
+    id: t?.id?.toString?.() || t?.uuid?.toString?.() || `${Date.now()}`,
+    name: fullName,
+    employeeId: t?.employeeId || '',
+    subject: t?.subject || '',
+    qualification: t?.qualification || '',
+    experience: t?.experience || '',
+    email: t?.email || '',
+    phone: t?.phone || '',
+    classes: typeof t?.classes === 'number' ? t.classes : 0,
+    performance: typeof t?.performance === 'number' ? t.performance : 0,
+    status: (t?.status as Teacher['status']) || 'Active',
+    specialization: t?.specialization || '',
+    joiningDate: t?.joiningDate || '',
+    address: t?.address || '',
+  };
+
+  if (import.meta.env.DEV) {
+    // Log first teacher normalization for debugging
+    if (normalized.id && normalized.name !== 'Unnamed Teacher') {
+      console.log('Normalize Teacher:', {
+        raw: t,
+        normalized: normalized,
+        fields: {
+          firstName: t?.firstName,
+          lastName: t?.lastName,
+          name: t?.name,
+          subject: t?.subject,
+          experience: t?.experience,
+          employeeId: t?.employeeId,
+        },
+      });
+    }
+  }
+  
+  return normalized;
+};
 
 const timetable = [
   {
@@ -173,9 +223,73 @@ export function Teachers() {
     setIsLoading(true);
     try {
       const response = await adminService.getTeachers();
-      const list = Array.isArray((response as any).teachers) ? (response as any).teachers : [];
-      setTeachers(list.map(normalizeTeacher));
+      
+      if (import.meta.env.DEV) {
+        console.log('FetchTeachers - Response from service:', {
+          response,
+          responseType: typeof response,
+          isArray: Array.isArray(response),
+          hasTeachers: !!(response as any)?.teachers,
+          teachersIsArray: Array.isArray((response as any)?.teachers),
+          teachersCount: Array.isArray((response as any)?.teachers) ? (response as any).teachers.length : 0,
+          firstTeacherRaw: Array.isArray((response as any)?.teachers) ? (response as any).teachers[0] : null,
+        });
+      }
+      
+      // Handle different response structures
+      let teachersList: any[] = [];
+      
+      // If response is directly an array
+      if (Array.isArray(response)) {
+        teachersList = response;
+      } 
+      // If response has teachers property
+      else if (response && typeof response === 'object' && (response as any).teachers) {
+        if (Array.isArray((response as any).teachers)) {
+          teachersList = (response as any).teachers;
+        }
+      }
+      // If response.data exists
+      else if (response && typeof response === 'object' && (response as any).data) {
+        if (Array.isArray((response as any).data)) {
+          teachersList = (response as any).data;
+        } else if (Array.isArray((response as any).data?.teachers)) {
+          teachersList = (response as any).data.teachers;
+        }
+      }
+      
+      if (import.meta.env.DEV) {
+        console.log('Fetched Teachers - After Processing:', {
+          teachersList,
+          count: teachersList.length,
+          firstTeacherRaw: teachersList[0],
+          firstTeacherNormalized: teachersList[0] ? normalizeTeacher(teachersList[0]) : null,
+          allTeachersRaw: teachersList,
+        });
+      }
+      
+      // Normalize and set teachers
+      const normalizedTeachers = teachersList.map((teacher, index) => {
+        const normalized = normalizeTeacher(teacher);
+        if (import.meta.env.DEV && index === 0) {
+          console.log('Normalize Example:', {
+            raw: teacher,
+            normalized: normalized,
+          });
+        }
+        return normalized;
+      });
+      
+      setTeachers(normalizedTeachers);
+      
+      if (import.meta.env.DEV) {
+        console.log('Final Teachers State:', {
+          count: normalizedTeachers.length,
+          teachers: normalizedTeachers,
+        });
+      }
     } catch (error: any) {
+      console.error('Fetch Teachers Error:', error);
       let message = 'Failed to load teachers. Please try again.';
       if (error instanceof ApiException) {
         message = getUserFriendlyError(error);
@@ -226,6 +340,15 @@ export function Teachers() {
   const handleViewProfile = async (teacher: Teacher) => {
     try {
       const response = await adminService.getTeacherById(teacher.id);
+      
+      if (import.meta.env.DEV) {
+        console.log('View Profile Response:', {
+          teacherId: teacher.id,
+          response,
+          data: response.data,
+        });
+      }
+      
       const data = response.data ? normalizeTeacher(response.data) : teacher;
       setSelectedTeacher(data);
       setShowProfileDialog(true);
@@ -237,6 +360,9 @@ export function Teachers() {
         message = error.message;
       }
       toast.error(message);
+      // Fallback to using cached teacher data
+      setSelectedTeacher(teacher);
+      setShowProfileDialog(true);
     }
   };
 
@@ -274,27 +400,61 @@ export function Teachers() {
     setAddress('');
   };
 
-  const handleEditTeacher = (teacher: Teacher) => {
+  const handleEditTeacher = async (teacher: Teacher) => {
     setIsEditMode(true);
     setEditingTeacherId(teacher.id);
     setSelectedTeacher(teacher);
     
-    // Extract first and last name
-    const nameParts = teacher.name.split(' ');
-    setFirstName(nameParts[0] || '');
-    setLastName(nameParts.slice(1).join(' ') || '');
-    
-    setEmployeeId(teacher.employeeId);
-    setSelectedSubject(teacher.subject);
-    setQualification(teacher.qualification);
-    setSpecialization(teacher.specialization || '');
-    setExperience(teacher.experience);
-    setEmail(teacher.email);
-    setPhone(teacher.phone);
-    setJoiningDate(teacher.joiningDate || '');
-    setAddress(teacher.address || '');
-    
-    setShowAddDialog(true);
+    // Fetch fresh data from API to ensure we have latest data
+    try {
+      const response = await adminService.getTeacherById(teacher.id);
+      const freshTeacher = response.data ? normalizeTeacher(response.data) : teacher;
+      
+      // Use firstName/lastName if available, otherwise split name
+      if (response.data?.firstName && response.data?.lastName) {
+        setFirstName(response.data.firstName);
+        setLastName(response.data.lastName);
+      } else {
+        // Fallback: Extract first and last name from name field
+        const nameParts = freshTeacher.name.split(' ');
+        setFirstName(nameParts[0] || '');
+        setLastName(nameParts.slice(1).join(' ') || '');
+      }
+      
+      setEmployeeId(freshTeacher.employeeId);
+      setSelectedSubject(freshTeacher.subject);
+      setQualification(freshTeacher.qualification || '');
+      setSpecialization(freshTeacher.specialization || '');
+      setExperience(freshTeacher.experience || '');
+      setEmail(freshTeacher.email);
+      setPhone(freshTeacher.phone);
+      setJoiningDate(freshTeacher.joiningDate || '');
+      setAddress(freshTeacher.address || '');
+      
+      setShowAddDialog(true);
+    } catch (error: any) {
+      // Fallback to using cached teacher data if API fails
+      const nameParts = teacher.name.split(' ');
+      setFirstName(nameParts[0] || '');
+      setLastName(nameParts.slice(1).join(' ') || '');
+      
+      setEmployeeId(teacher.employeeId);
+      setSelectedSubject(teacher.subject);
+      setQualification(teacher.qualification || '');
+      setSpecialization(teacher.specialization || '');
+      setExperience(teacher.experience || '');
+      setEmail(teacher.email);
+      setPhone(teacher.phone);
+      setJoiningDate(teacher.joiningDate || '');
+      setAddress(teacher.address || '');
+      
+      setShowAddDialog(true);
+      
+      // Show warning but don't block editing
+      if (import.meta.env.DEV) {
+        console.warn('Failed to fetch fresh teacher data, using cached data:', error);
+      }
+    }
   };
 
   const handleUpdateTeacher = async () => {
@@ -303,6 +463,35 @@ export function Teachers() {
     if (!firstName || !lastName || !employeeId || !selectedSubject || !qualification || !email || !phone) {
       toast.error('Please fill all required fields', {
         description: 'First name, last name, employee ID, subject, qualification, email, and phone are required.',
+      });
+      return;
+    }
+
+    // Trim and validate fields
+    const trimmedFirst = firstName.trim();
+    const trimmedLast = lastName.trim();
+    const trimmedEmail = email.trim();
+
+    // Validate firstName and lastName are non-empty strings
+    if (!trimmedFirst || trimmedFirst.length === 0) {
+      toast.error('Invalid first name', {
+        description: 'First name must be a non-empty string.',
+      });
+      return;
+    }
+
+    if (!trimmedLast || trimmedLast.length === 0) {
+      toast.error('Invalid last name', {
+        description: 'Last name must be a non-empty string.',
+      });
+      return;
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!trimmedEmail || !emailRegex.test(trimmedEmail)) {
+      toast.error('Invalid email format', {
+        description: 'Please enter a valid email address.',
       });
       return;
     }
@@ -316,25 +505,36 @@ export function Teachers() {
     }
 
     const payload: UpdateTeacherRequest = {
-      name: `${firstName} ${lastName}`,
-      firstName,
-      lastName,
-      employeeId,
-      subject: selectedSubject,
-      qualification,
-      specialization,
-      experience,
-      email,
-      phone,
-      joiningDate,
-      address,
+      name: `${trimmedFirst} ${trimmedLast}`.trim(),
+      firstName: trimmedFirst,
+      lastName: trimmedLast,
+      employeeId: employeeId.trim(),
+      subject: selectedSubject.trim(),
+      qualification: qualification.trim(),
+      specialization: specialization.trim(),
+      experience: experience.trim(),
+      email: trimmedEmail,
+      phone: phone.trim(),
+      joiningDate: joiningDate.trim(),
+      address: address.trim(),
     };
 
     setIsSubmitting(true);
     try {
       const response = await adminService.updateTeacher(editingTeacherId, payload);
+      
+      if (import.meta.env.DEV) {
+        console.log('Update Teacher Success Response:', {
+          response,
+          data: response.data,
+          normalized: normalizeTeacher(response.data),
+        });
+      }
+      
       const updatedTeacher = normalizeTeacher(response.data);
-      setTeachers(teachers.map(t => t.id === editingTeacherId ? updatedTeacher : t));
+      
+      // Refresh teachers list to get latest data from backend
+      await fetchTeachers();
 
       toast.success(
         <div className="flex items-start gap-3 w-full">
@@ -370,9 +570,48 @@ export function Teachers() {
       return;
     }
 
+    // Validate required fields
     if (!firstName || !lastName || !employeeId || !selectedSubject || !qualification || !email || !phone) {
       toast.error('Please fill all required fields', {
         description: 'First name, last name, employee ID, subject, qualification, email, and phone are required.',
+      });
+      return;
+    }
+
+    // Trim and validate fields
+    const trimmedFirst = firstName.trim();
+    const trimmedLast = lastName.trim();
+    const trimmedEmail = email.trim();
+
+    // Validate firstName and lastName are non-empty strings
+    if (!trimmedFirst || trimmedFirst.length === 0) {
+      toast.error('Invalid first name', {
+        description: 'First name must be a non-empty string.',
+      });
+      return;
+    }
+
+    if (!trimmedLast || trimmedLast.length === 0) {
+      toast.error('Invalid last name', {
+        description: 'Last name must be a non-empty string.',
+      });
+      return;
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!trimmedEmail || !emailRegex.test(trimmedEmail)) {
+      toast.error('Invalid email format', {
+        description: 'Please enter a valid email address.',
+      });
+      return;
+    }
+
+    // Get schoolId from storage
+    const schoolId = schoolStorage.getSchoolId();
+    if (!schoolId) {
+      toast.error('School ID not found', {
+        description: 'Please login again or select a school.',
       });
       return;
     }
@@ -385,31 +624,52 @@ export function Teachers() {
       return;
     }
 
-    const tempPassword = phone && typeof phone === 'string' && phone.length >= 6
-      ? `P@${phone.slice(-6)}`
+    const trimmedEmployeeId = employeeId.trim();
+    const trimmedSubject = selectedSubject.trim();
+    const trimmedQualification = qualification.trim();
+    const trimmedSpecialization = specialization.trim();
+    const trimmedExperience = experience.trim();
+    const trimmedPhone = phone.trim();
+    const trimmedJoining = joiningDate.trim();
+    const trimmedAddress = address.trim();
+
+    const tempPassword = trimmedPhone && trimmedPhone.length >= 6
+      ? `P@${trimmedPhone.slice(-6)}`
       : 'Temp@1234';
 
     const payload: AddTeacherRequest = {
-      name: `${firstName} ${lastName}`,
-      firstName,
-      lastName,
-      employeeId,
-      subject: selectedSubject,
-      qualification,
-      specialization,
-      experience,
-      email,
-      phone,
-      joiningDate,
-      address,
+      name: `${trimmedFirst} ${trimmedLast}`.trim(),
+      firstName: trimmedFirst,
+      lastName: trimmedLast,
+      employeeId: trimmedEmployeeId,
+      subject: trimmedSubject,
+      qualification: trimmedQualification,
+      specialization: trimmedSpecialization,
+      experience: trimmedExperience,
+      email: trimmedEmail,
+      phone: trimmedPhone,
+      joiningDate: trimmedJoining,
+      address: trimmedAddress,
       password: tempPassword,
+      schoolId: schoolId, // Add schoolId from storage
     };
 
     setIsSubmitting(true);
     try {
       const response = await adminService.addTeacher(payload);
+      
+      if (import.meta.env.DEV) {
+        console.log('Add Teacher Success Response:', {
+          response,
+          data: response.data,
+          normalized: normalizeTeacher(response.data),
+        });
+      }
+      
       const newTeacher = normalizeTeacher(response.data);
-      setTeachers([...teachers, newTeacher]);
+      
+      // Refresh teachers list to get latest data from backend
+      await fetchTeachers();
 
       toast.success(
         <div className="flex items-start gap-3 w-full">

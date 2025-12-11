@@ -17,11 +17,14 @@ export interface CreateSectionRequest {
  * Add Class Request
  */
 export interface AddClassRequest {
-  name: string;
-  grade: number;
-  academicYear: string;
+  className: string; // Backend expects 'className' not 'name'
+  grade?: number; // Optional based on backend
+  academicYear: string; // REQUIRED - Name of academic year (e.g., "2024-2025")
+  academicYearId?: string; // UUID of academic year (if available, optional)
+  academicYearName?: string; // Name of academic year (alternative to academicYear)
   sections: CreateSectionRequest[];
   subjectIds?: string[];
+  schoolId?: string; // Will be added from header, but can be included in body if needed
 }
 
 /**
@@ -57,9 +60,11 @@ export interface ClassResponse {
  * Update Class Request
  */
 export interface UpdateClassRequest {
-  name?: string;
+  className?: string; // Backend expects 'className' not 'name'
   grade?: number;
-  academicYear?: string;
+  academicYear?: string; // REQUIRED - Name of academic year (e.g., "2024-2025")
+  academicYearId?: string; // UUID of academic year (optional)
+  academicYearName?: string; // Name of academic year (alternative to academicYear)
   sections?: CreateSectionRequest[];
   subjectIds?: string[];
 }

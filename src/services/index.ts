@@ -6,4 +6,6 @@
 export { apiClient } from './api.client';
 export { authService } from './auth.service';
 export { adminService } from './admin.service';
+export { schoolService } from './school.service';
+export { teacherService } from './teacher.service';
 

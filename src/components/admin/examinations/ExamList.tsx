@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Search, Filter, Download, Plus, ArrowLeft, Eye, Pencil, Clipboard, Send, Trash2, MoreVertical, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
@@ -9,6 +9,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../../ui/dropdown-menu';
 import { Progress } from '../../ui/progress';
 import { Exam } from '../Examinations';
+import { adminService } from '../../../services';
+import { Examination, ExamType, ExamStatus } from '../../../types/examination.types';
+import { toast } from 'sonner';
 
 interface ExamListProps {
   onViewExam: (exam: Exam) => void;
@@ -16,126 +19,98 @@ interface ExamListProps {
   onBack: () => void;
 }
 
-const exams: Exam[] = [
-  {
-    id: '1',
-    name: 'Mid-Term Examination 2024',
-    type: 'Mid-Term',
-    academicYear: '2024-2025',
-    startDate: '2024-11-15',
-    endDate: '2024-11-20',
-    classes: ['10-A', '10-B', '11-A'],
-    subjects: ['Mathematics', 'Physics', 'Chemistry', 'Biology', 'English'],
-    status: 'Scheduled',
-    totalStudents: 234,
-    marksEntryProgress: 0,
-    resultsPublished: 0
-  },
-  {
-    id: '2',
-    name: 'Physics Unit Test',
-    type: 'Unit Test',
-    academicYear: '2024-2025',
-    startDate: '2024-11-08',
-    endDate: '2024-11-08',
-    classes: ['12-A', '12-B'],
-    subjects: ['Physics'],
-    status: 'Ongoing',
-    totalStudents: 78,
-    marksEntryProgress: 45,
-    resultsPublished: 0
-  },
-  {
-    id: '3',
-    name: 'Final Examination 2023',
-    type: 'Final',
-    academicYear: '2023-2024',
-    startDate: '2024-03-20',
-    endDate: '2024-03-30',
-    classes: ['10-A', '10-B', '11-A', '11-B', '12-A', '12-B'],
-    subjects: ['Mathematics', 'Physics', 'Chemistry', 'Biology', 'English', 'History'],
-    status: 'Completed',
-    totalStudents: 456,
-    marksEntryProgress: 100,
-    resultsPublished: 100
-  },
-  {
-    id: '4',
-    name: 'Mathematics Monthly Test',
-    type: 'Monthly Test',
-    academicYear: '2024-2025',
-    startDate: '2024-10-15',
-    endDate: '2024-10-15',
-    classes: ['9-A', '9-B', '9-C'],
-    subjects: ['Mathematics'],
-    status: 'Completed',
-    totalStudents: 142,
-    marksEntryProgress: 100,
-    resultsPublished: 67
-  },
-  {
-    id: '5',
-    name: 'English Literature Test',
-    type: 'Unit Test',
-    academicYear: '2024-2025',
-    startDate: '2024-11-25',
-    endDate: '2024-11-25',
-    classes: ['11-A', '11-B'],
-    subjects: ['English'],
-    status: 'Scheduled',
-    totalStudents: 89,
-    marksEntryProgress: 0,
-    resultsPublished: 0
-  },
-  {
-    id: '6',
-    name: 'Chemistry Practical Exam',
-    type: 'Practical',
-    academicYear: '2024-2025',
-    startDate: '2024-10-28',
-    endDate: '2024-10-30',
-    classes: ['12-A', '12-B'],
-    subjects: ['Chemistry'],
-    status: 'Completed',
-    totalStudents: 72,
-    marksEntryProgress: 100,
-    resultsPublished: 100
-  },
-  {
-    id: '7',
-    name: 'Biology Mid-Term',
-    type: 'Mid-Term',
-    academicYear: '2024-2025',
-    startDate: '2024-11-18',
-    endDate: '2024-11-19',
-    classes: ['11-A', '11-B', '12-A'],
-    subjects: ['Biology'],
-    status: 'Scheduled',
-    totalStudents: 156,
-    marksEntryProgress: 0,
-    resultsPublished: 0
-  }
-];
+// Helper function to convert Examination to Exam
+function convertExaminationToExam(examination: Examination): Exam {
+  return {
+    id: examination.id,
+    name: examination.examName,
+    type: examination.examType,
+    academicYear: examination.academicYearName || examination.academicYearId,
+    startDate: examination.startDate || '',
+    endDate: examination.endDate || '',
+    classes: examination.examClasses?.map(ec => ec.className || ec.classId) || [],
+    subjects: examination.examSubjects?.map(es => es.subjectName || es.subjectId) || [],
+    status: examination.status === 'SCHEDULED' ? 'Scheduled' : 
+            examination.status === 'ONGOING' ? 'Ongoing' :
+            examination.status === 'COMPLETED' ? 'Completed' : 'Archived',
+    totalStudents: 0, // This would need to be calculated from examClasses
+    marksEntryProgress: 0, // This would need to be fetched separately
+    resultsPublished: 0, // This would need to be fetched separately
+  };
+}
 
 export function ExamList({ onViewExam, onCreateExam, onBack }: ExamListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [filterExamType, setFilterExamType] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(15);
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
-  const itemsPerPage = 15;
+  const [exams, setExams] = useState<Exam[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [totalExams, setTotalExams] = useState(0);
 
-  const filteredExams = exams.filter(exam => {
-    const matchesSearch = exam.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = filterStatus === 'all' || exam.status.toLowerCase() === filterStatus.toLowerCase();
-    return matchesSearch && matchesStatus;
-  });
+  useEffect(() => {
+    fetchExams();
+  }, [searchQuery, filterStatus, filterExamType, currentPage, itemsPerPage]);
 
-  const totalPages = Math.ceil(filteredExams.length / itemsPerPage);
+  const fetchExams = async () => {
+    setIsLoading(true);
+    try {
+      const params: any = {
+        page: currentPage,
+        limit: itemsPerPage,
+      };
+
+      if (searchQuery) {
+        params.search = searchQuery;
+      }
+
+      if (filterStatus !== 'all') {
+        params.status = filterStatus.toUpperCase() as ExamStatus;
+      }
+
+      if (filterExamType !== 'all') {
+        params.examType = filterExamType as ExamType;
+      }
+
+      const response = await adminService.getExaminations(params);
+      setExams(response.examinations.map(convertExaminationToExam));
+      setTotalExams(response.total || response.examinations.length);
+    } catch (error: any) {
+      console.error('Error fetching exams:', error);
+      toast.error('Failed to load examinations');
+      setExams([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const totalPages = Math.ceil(totalExams / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedExams = filteredExams.slice(startIndex, startIndex + itemsPerPage);
 
   const removeFilter = (filter: string) => {
     setActiveFilters(activeFilters.filter(f => f !== filter));
+    if (filter === 'Status') {
+      setFilterStatus('all');
+    } else if (filter === 'Type') {
+      setFilterExamType('all');
+    }
+  };
+
+  const handleDeleteExam = async (examId: string) => {
+    if (!confirm('Are you sure you want to delete this examination?')) {
+      return;
+    }
+
+    try {
+      await adminService.deleteExamination(examId);
+      toast.success('Examination deleted successfully');
+      fetchExams();
+    } catch (error: any) {
+      console.error('Error deleting exam:', error);
+      toast.error('Failed to delete examination');
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -197,25 +172,42 @@ export function ExamList({ onViewExam, onCreateExam, onBack }: ExamListProps) {
             />
           </div>
 
-          {/* Filter Dropdown */}
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
+          {/* Filter Dropdown - Status */}
+          <Select value={filterStatus} onValueChange={(value) => {
+            setFilterStatus(value);
+            setCurrentPage(1);
+          }}>
             <SelectTrigger className="w-full lg:w-48 bg-gray-50 dark:bg-gray-800">
               <Filter className="w-4 h-4 mr-2" />
-              <SelectValue />
+              <SelectValue placeholder="Filter by status" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Exams</SelectItem>
-              <SelectItem value="scheduled">Upcoming</SelectItem>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="scheduled">Scheduled</SelectItem>
               <SelectItem value="ongoing">Ongoing</SelectItem>
               <SelectItem value="completed">Completed</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
             </SelectContent>
           </Select>
 
-          {/* Date Range */}
-          <div className="flex gap-2">
-            <Input type="date" className="bg-gray-50 dark:bg-gray-800" />
-            <Input type="date" className="bg-gray-50 dark:bg-gray-800" />
-          </div>
+          {/* Filter Dropdown - Exam Type */}
+          <Select value={filterExamType} onValueChange={(value) => {
+            setFilterExamType(value);
+            setCurrentPage(1);
+          }}>
+            <SelectTrigger className="w-full lg:w-48 bg-gray-50 dark:bg-gray-800">
+              <SelectValue placeholder="Filter by type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Types</SelectItem>
+              <SelectItem value="QUIZ">Quiz</SelectItem>
+              <SelectItem value="MID_TERM">Mid-Term</SelectItem>
+              <SelectItem value="FINAL">Final</SelectItem>
+              <SelectItem value="ASSIGNMENT">Assignment</SelectItem>
+              <SelectItem value="PROJECT">Project</SelectItem>
+            </SelectContent>
+          </Select>
+
 
           {/* Export */}
           <Button variant="outline" className="gap-2">
@@ -264,7 +256,20 @@ export function ExamList({ onViewExam, onCreateExam, onBack }: ExamListProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paginatedExams.map((exam, index) => (
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                  Loading examinations...
+                </TableCell>
+              </TableRow>
+            ) : exams.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                  No examinations found
+                </TableCell>
+              </TableRow>
+            ) : (
+              exams.map((exam, index) => (
               <TableRow 
                 key={exam.id} 
                 className={`hover:bg-blue-50/50 dark:hover:bg-blue-900/10 cursor-pointer ${
@@ -350,7 +355,13 @@ export function ExamList({ onViewExam, onCreateExam, onBack }: ExamListProps) {
                         <Download className="w-4 h-4 mr-2" />
                         Download Report
                       </DropdownMenuItem>
-                      <DropdownMenuItem className="text-red-600">
+                      <DropdownMenuItem 
+                        className="text-red-600"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteExam(exam.id);
+                        }}
+                      >
                         <Trash2 className="w-4 h-4 mr-2" />
                         Delete
                       </DropdownMenuItem>
@@ -358,7 +369,8 @@ export function ExamList({ onViewExam, onCreateExam, onBack }: ExamListProps) {
                   </DropdownMenu>
                 </TableCell>
               </TableRow>
-            ))}
+              ))
+            )}
           </TableBody>
         </Table>
       </Card>
@@ -366,7 +378,7 @@ export function ExamList({ onViewExam, onCreateExam, onBack }: ExamListProps) {
       {/* Pagination */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filteredExams.length)} of {filteredExams.length} exams
+          Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, totalExams)} of {totalExams} exams
         </p>
         
         <div className="flex items-center gap-2">
@@ -403,7 +415,10 @@ export function ExamList({ onViewExam, onCreateExam, onBack }: ExamListProps) {
           </Button>
         </div>
 
-        <Select defaultValue="15">
+        <Select value={itemsPerPage.toString()} onValueChange={(value) => {
+          setItemsPerPage(parseInt(value));
+          setCurrentPage(1);
+        }}>
           <SelectTrigger className="w-24">
             <SelectValue />
           </SelectTrigger>
@@ -411,6 +426,7 @@ export function ExamList({ onViewExam, onCreateExam, onBack }: ExamListProps) {
             <SelectItem value="15">15</SelectItem>
             <SelectItem value="30">30</SelectItem>
             <SelectItem value="50">50</SelectItem>
+            <SelectItem value="100">100</SelectItem>
           </SelectContent>
         </Select>
       </div>

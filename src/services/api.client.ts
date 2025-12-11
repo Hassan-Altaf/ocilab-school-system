@@ -6,7 +6,7 @@
 import { getApiUrl, API_CONFIG } from '../config/api.config';
 import { ApiResponse, RequestConfig } from '../types/api.types';
 import { ApiException, parseApiError, getUserFriendlyError, isNetworkError } from '../utils/errors';
-import { tokenStorage } from '../utils/storage';
+import { tokenStorage, schoolStorage } from '../utils/storage';
 
 /**
  * Request options
@@ -33,9 +33,38 @@ class ApiClient {
   }
 
   /**
+   * Check if endpoint requires school UUID header
+   * School UUID should NOT be added to auth endpoints (login, register, etc.)
+   */
+  private shouldIncludeSchoolUUID(endpoint: string): boolean {
+    // List of endpoints that should NOT have X-School-UUID header
+    const excludedEndpoints = [
+      '/auth/login',
+      '/auth/register',
+      '/auth/admin-login',
+      '/auth/school/register', // School registration doesn't need school UUID yet
+      '/auth/school/login', // School login doesn't need school UUID yet (it's used to get school)
+      '/auth/logout',
+      '/auth/forgot-password',
+      '/auth/reset-password',
+      '/auth/2fa/verify',
+      '/auth/2fa/setup',
+      '/auth/resend-otp',
+      '/auth/refresh-token',
+      '/auth/verify-email',
+      '/auth/change-password',
+    ];
+
+    // Check if endpoint is in excluded list
+    const isExcluded = excludedEndpoints.some(excluded => endpoint.includes(excluded));
+    
+    return !isExcluded; // Only include school UUID if NOT excluded
+  }
+
+  /**
    * Get default headers with auth token
    */
-  private getHeaders(customHeaders?: HeadersInit): HeadersInit {
+  private getHeaders(customHeaders?: HeadersInit, endpoint?: string): HeadersInit {
     const headers: HeadersInit = {
       ...this.defaultHeaders,
       ...customHeaders,
@@ -45,6 +74,42 @@ class ApiClient {
     const token = tokenStorage.getAccessToken();
     if (token) {
       (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+      
+      // Debug: Log token in development
+      if (import.meta.env.DEV) {
+        console.log('Token added to headers:', {
+          hasToken: true,
+          tokenPrefix: token.substring(0, 20) + '...',
+        });
+      }
+    } else {
+      // Debug: Log missing token
+      if (import.meta.env.DEV) {
+        console.warn('No token found in storage for API request');
+        
+        // Try to use session ID if available (for 2FA flow)
+        const sessionId = sessionStorage.getItem('auth_session_id');
+        const userId = sessionStorage.getItem('auth_user_id');
+        if (sessionId && userId) {
+          console.log('Using session ID for authentication:', { sessionId, userId });
+          // Some backends accept session-based auth - try adding session headers
+          (headers as Record<string, string>)['X-Session-ID'] = sessionId;
+          (headers as Record<string, string>)['X-User-ID'] = userId;
+        }
+      }
+    }
+
+    // Add school UUID header ONLY if endpoint requires it and schoolId is available
+    if (endpoint && this.shouldIncludeSchoolUUID(endpoint)) {
+      const schoolId = schoolStorage.getSchoolId();
+      if (schoolId) {
+        (headers as Record<string, string>)['X-School-UUID'] = schoolId;
+        
+        // Debug: Log school UUID in development
+        if (import.meta.env.DEV) {
+          console.log('School UUID added to headers:', schoolId);
+        }
+      }
     }
 
     return headers;
@@ -114,17 +179,159 @@ class ApiClient {
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     try {
-      const response = await fetch(url, {
+      const fetchOptions: RequestInit = {
         ...options,
         signal: controller.signal,
-      });
+        mode: 'cors', // Explicitly set CORS mode
+        cache: 'no-cache', // Don't cache requests
+      };
+      
+      // Only add credentials if not already specified
+      if (!('credentials' in options)) {
+        fetchOptions.credentials = 'omit'; // Use 'omit' to avoid CORS preflight issues, backend should handle auth via headers
+      }
+      
+      // Log request details in development for CORS debugging
+      if (import.meta.env.DEV) {
+        const customHeaders = (options.headers as Record<string, string>) || {};
+        const hasCustomHeaders = Object.keys(customHeaders).some(key => 
+          key.startsWith('X-') || key.toLowerCase() === 'authorization'
+        );
+        
+        if (hasCustomHeaders) {
+          console.log('🔍 CORS Preflight Trigger:', {
+            url,
+            method: options.method || 'GET',
+            customHeaders: Object.keys(customHeaders),
+            note: 'Custom headers trigger CORS preflight. Backend must allow these headers.',
+          });
+        }
+      }
+      
+      // Make the request
+      const response = await fetch(url, fetchOptions);
       clearTimeout(timeoutId);
+      
+      // Check for CORS errors in response (status 0 usually indicates CORS failure)
+      if (!response.ok && response.status === 0) {
+        throw new ApiException(
+          'CORS error: Backend server is not allowing requests from this origin. Please check backend CORS configuration.',
+          0,
+          'CORS_ERROR',
+          { url }
+        );
+      }
+      
+      // Check if response was blocked (CORS preflight failure)
+      if (response.type === 'opaque' || response.type === 'opaqueredirect') {
+        // Try to get more info from error if available
+        const customHeaders = (options.headers as Record<string, string>) || {};
+        const customHeaderNames = Object.keys(customHeaders).filter(key => key.startsWith('X-'));
+        const lowercaseHeaders = customHeaderNames.map(h => h.toLowerCase());
+        
+        throw new ApiException(
+          `CORS Error: Request blocked by browser CORS policy.\n\nBackend needs to allow these headers in Access-Control-Allow-Headers:\n${lowercaseHeaders.map(h => `- ${h}`).join('\n')}\n\nQuick Fix: Add "${lowercaseHeaders.join('", "')}" to Access-Control-Allow-Headers in backend CORS configuration.`,
+          0,
+          'CORS_ERROR',
+          { 
+            url, 
+            responseType: response.type,
+            customHeaders: customHeaderNames,
+            lowercaseHeaders: lowercaseHeaders,
+            solution: `Add "${lowercaseHeaders.join('", "')}" to Access-Control-Allow-Headers`
+          }
+        );
+      }
+      
       return response;
     } catch (error: any) {
       clearTimeout(timeoutId);
       if (error.name === 'AbortError') {
         throw new ApiException('Request timeout', 408, 'TIMEOUT');
       }
+      
+      // Handle CORS errors specifically
+      if (error.message && (error.message.includes('CORS') || error.message.includes('cors'))) {
+        const customHeaders = (options.headers as Record<string, string>) || {};
+        const customHeaderNames = Object.keys(customHeaders).filter(key => key.startsWith('X-'));
+        
+        throw new ApiException(
+          `CORS Error: Backend server is not allowing requests from this origin.\n\nRequired Headers: ${customHeaderNames.join(', ')}\n\nBackend must configure CORS to allow:\n- Access-Control-Allow-Origin: ${window.location.origin}\n- Access-Control-Allow-Headers: Authorization, Content-Type, X-School-UUID, X-Class-UUID\n- Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS`,
+          0,
+          'CORS_ERROR',
+          { 
+            url, 
+            error: error.message,
+            customHeaders: customHeaderNames,
+            solution: 'Backend CORS configuration must include all custom headers in Access-Control-Allow-Headers'
+          }
+        );
+      }
+      
+      // Handle network errors (which might be CORS)
+      if (error.message === 'Failed to fetch' || error.name === 'TypeError' || error.message?.includes('fetch')) {
+        // Check if it's a CORS error by checking for CORS-related keywords
+        const isCorsError = error.message?.includes('CORS') || 
+                           error.message?.includes('cors') || 
+                           error.message?.includes('Access-Control') ||
+                           error.message?.includes('blocked by CORS policy') ||
+                           error.message?.includes('preflight') ||
+                           error.message?.includes('not allowed by Access-Control-Allow-Headers') ||
+                           error.message?.includes('network error') ||
+                           (error.name === 'TypeError' && !error.message);
+        
+        // Check console for CORS errors (browser logs them separately)
+        const consoleError = (window as any).__lastCorsError;
+        if (consoleError && consoleError.includes('not allowed by Access-Control-Allow-Headers')) {
+          // Extract header name from error
+          const headerMatch = consoleError.match(/header field ['"]([^'"]+)['"]/i);
+          if (headerMatch) {
+            const blockedHeader = headerMatch[1].toLowerCase();
+            const customHeaders = (options.headers as Record<string, string>) || {};
+            
+            throw new ApiException(
+              `🚨 CORS Error: Header "${blockedHeader}" is not allowed by backend.\n\n✅ Quick Fix:\nBackend must add "${blockedHeader}" to Access-Control-Allow-Headers.\n\nExample (Express.js):\napp.use(cors({\n  allowedHeaders: ['Content-Type', 'Authorization', '${blockedHeader}']\n}));\n\nExample (NestJS):\napp.enableCors({\n  allowedHeaders: ['Content-Type', 'Authorization', '${blockedHeader}']\n});`,
+              0,
+              'CORS_ERROR',
+              { 
+                url, 
+                error: error.message,
+                blockedHeader: blockedHeader,
+                solution: `Add "${blockedHeader}" to Access-Control-Allow-Headers in backend CORS configuration`
+              }
+            );
+          }
+        }
+        
+        if (isCorsError) {
+          const customHeaders = (options.headers as Record<string, string>) || {};
+          const customHeaderNames = Object.keys(customHeaders).filter(key => key.startsWith('X-'));
+          
+          // Convert header names to lowercase for CORS (browser sends them lowercase in preflight)
+          const lowercaseHeaders = customHeaderNames.map(h => h.toLowerCase());
+          
+          throw new ApiException(
+            `CORS Error: Request blocked by browser CORS policy.\n\n❌ Header "${customHeaderNames[0] || 'x-class-uuid'}" is not allowed by backend.\n\n✅ Backend CORS configuration must include:\n1. Access-Control-Allow-Origin: ${window.location.origin}\n2. Access-Control-Allow-Headers: Authorization, Content-Type, ${lowercaseHeaders.join(', ')}\n3. Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS\n4. Handle OPTIONS preflight requests\n\n⚠️ Note: Header names in Access-Control-Allow-Headers must match exactly (case-sensitive in CORS).`,
+            0,
+            'CORS_ERROR',
+            { 
+              url, 
+              error: error.message,
+              customHeaders: customHeaderNames,
+              lowercaseHeaders: lowercaseHeaders,
+              solution: `Backend needs to add "${lowercaseHeaders.join('", "')}" to Access-Control-Allow-Headers in CORS configuration. Header names must be lowercase.`
+            }
+          );
+        }
+        
+        throw new ApiException(
+          'Network error: Unable to connect to server. Please check your internet connection and ensure the backend server is running.',
+          0,
+          'NETWORK_ERROR',
+          { url, error: error.message }
+        );
+      }
+      
       throw error;
     }
   }
@@ -157,9 +364,11 @@ class ApiClient {
           status: response.status,
           data,
           url: response.url,
+          fullResponse: data,
         });
       }
 
+      // Parse error from response data
       const error = parseApiError({
         response: {
           status: response.status,
@@ -167,11 +376,32 @@ class ApiClient {
         },
       });
       
+      // Enhanced error message extraction
+      let errorMessage = error.message || 'Request failed';
+      
+      // Handle array of error messages (validation errors)
+      if (data?.message && Array.isArray(data.message)) {
+        errorMessage = data.message.join(', ');
+      } else if (data?.message && typeof data.message === 'string') {
+        errorMessage = data.message;
+      } else if (data?.error && typeof data.error === 'string') {
+        errorMessage = data.error;
+      }
+
+      // Special handling for 403 Forbidden (role/permission errors)
+      if (response.status === 403) {
+        if (errorMessage.toLowerCase().includes('teacher') || errorMessage.toLowerCase().includes('role')) {
+          errorMessage = 'Access denied: Teacher role required. Please login as a teacher to access this feature.';
+        } else {
+          errorMessage = 'Access denied: You do not have permission to access this resource.';
+        }
+      }
+      
       throw new ApiException(
-        error.message || 'Request failed',
+        errorMessage,
         response.status,
         error.code,
-        error.details
+        { ...error.details, originalData: data }
       );
     }
 
@@ -200,7 +430,7 @@ class ApiClient {
       ...fetchOptions
     } = options;
 
-    const requestHeaders = this.getHeaders(headers as HeadersInit);
+    const requestHeaders = this.getHeaders(headers as HeadersInit, endpoint);
 
     try {
       let response: Response;
@@ -222,11 +452,35 @@ class ApiClient {
       return await this.handleResponse<T>(response);
     } catch (error: any) {
       if (error instanceof ApiException) {
+        // Log CORS errors with detailed information
+        if (error.code === 'CORS_ERROR') {
+          console.error('🚨 CORS Error Detected:', {
+            endpoint,
+            url,
+            message: error.message,
+            details: error.details,
+            solution: 'Backend needs to add X-School-UUID to Access-Control-Allow-Headers. See BACKEND_CORS_CONFIG.md for details.',
+          });
+        }
         throw error;
       }
 
       // Handle network errors
       if (isNetworkError(error)) {
+        // Check if it might be a CORS error
+        const mightBeCors = error.message?.includes('Failed to fetch') || 
+                           error.message?.includes('network') ||
+                           error.name === 'TypeError';
+        
+        if (mightBeCors) {
+          console.error('🚨 Possible CORS Error:', {
+            endpoint,
+            url,
+            error: error.message,
+            solution: 'Backend CORS configuration needs to allow X-School-UUID header. See BACKEND_CORS_CONFIG.md for details.',
+          });
+        }
+        
         throw new ApiException(
           'Network error. Please check your internet connection.',
           0,

@@ -1,0 +1,1449 @@
+{
+  "title": "Admin Panel APIs Documentation",
+  "version": "1.0.0",
+  "baseUrl": "/v1",
+  "authentication": {
+    "type": "JWT Bearer Token",
+    "header": "Authorization: Bearer <token>",
+    "note": "All endpoints require JWT authentication and AdminGuard"
+  },
+  "modules": {
+    "attendance": {
+      "basePath": "/admin/attendance",
+      "description": "Attendance management APIs",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/admin/attendance",
+          "description": "Create attendance record",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "schoolId": "string (UUID, required)",
+            "studentId": "string (UUID, required)",
+            "classId": "string (UUID, required)",
+            "sectionId": "string (UUID, required)",
+            "attendanceDate": "string (ISO date, required)",
+            "status": "enum (PRESENT, ABSENT, LATE, EXCUSED, required)",
+            "markedBy": "string (UUID, required)",
+            "remarks": "string (optional)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/attendance",
+          "description": "Get all attendance records with filters",
+          "roles": [],
+          "queryParameters": {
+            "search": "string (optional)",
+            "schoolId": "string (UUID, optional)",
+            "studentId": "string (UUID, optional)",
+            "classId": "string (UUID, optional)",
+            "sectionId": "string (UUID, optional)",
+            "startDate": "string (ISO date, optional)",
+            "endDate": "string (ISO date, optional)",
+            "status": "enum (PRESENT, ABSENT, LATE, EXCUSED, optional)",
+            "page": "number (default: 1, min: 1)",
+            "limit": "number (default: 10, min: 1, max: 100)",
+            "sortBy": "string (default: 'attendanceDate')",
+            "sortOrder": "enum ('asc', 'desc', default: 'desc')"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/attendance/report",
+          "description": "Get attendance report",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "queryParameters": {
+            "classId": "string (UUID, optional)",
+            "sectionId": "string (UUID, optional)",
+            "startDate": "string (ISO date, optional)",
+            "endDate": "string (ISO date, optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/attendance/:id",
+          "description": "Get single attendance record",
+          "roles": [],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "PATCH",
+          "path": "/admin/attendance/:id",
+          "description": "Update attendance record",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "requestBody": {
+            "attendanceDate": "string (ISO date, optional)",
+            "status": "enum (PRESENT, ABSENT, LATE, EXCUSED, optional)",
+            "remarks": "string (optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "DELETE",
+          "path": "/admin/attendance/:id",
+          "description": "Delete attendance record",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/attendance/leave-applications",
+          "description": "Create leave application",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "studentId": "string (UUID, required)",
+            "leaveType": "string (required)",
+            "startDate": "string (ISO date, required)",
+            "endDate": "string (ISO date, required)",
+            "reason": "string (optional)",
+            "status": "enum (PENDING, APPROVED, REJECTED, optional)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/attendance/leave-applications",
+          "description": "Get all leave applications",
+          "roles": [],
+          "queryParameters": {
+            "search": "string (optional)",
+            "studentId": "string (UUID, optional)",
+            "status": "enum (PENDING, APPROVED, REJECTED, optional)",
+            "page": "number (default: 1)",
+            "limit": "number (default: 10)",
+            "sortBy": "string",
+            "sortOrder": "enum ('asc', 'desc')"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/attendance/leave-applications/:id",
+          "description": "Get single leave application",
+          "roles": [],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "PATCH",
+          "path": "/admin/attendance/leave-applications/:id",
+          "description": "Update leave application",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "requestBody": {
+            "leaveType": "string (optional)",
+            "startDate": "string (ISO date, optional)",
+            "endDate": "string (ISO date, optional)",
+            "reason": "string (optional)",
+            "status": "enum (PENDING, APPROVED, REJECTED, optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "DELETE",
+          "path": "/admin/attendance/leave-applications/:id",
+          "description": "Delete leave application",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        }
+      ]
+    },
+    "fees": {
+      "basePath": "/admin/fees",
+      "description": "Fee management APIs",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/admin/fees/fee-types",
+          "description": "Create fee type",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "schoolId": "string (UUID, required)",
+            "feeName": "string (required)",
+            "description": "string (optional)",
+            "isActive": "boolean (optional)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/fees/fee-types",
+          "description": "Get all fee types",
+          "roles": [],
+          "queryParameters": {
+            "search": "string (optional)",
+            "isActive": "boolean (optional)",
+            "page": "number (default: 1)",
+            "limit": "number (default: 10)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/fees/fee-types/:id",
+          "description": "Get single fee type",
+          "roles": [],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "PATCH",
+          "path": "/admin/fees/fee-types/:id",
+          "description": "Update fee type",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "requestBody": {
+            "feeName": "string (optional)",
+            "description": "string (optional)",
+            "isActive": "boolean (optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "DELETE",
+          "path": "/admin/fees/fee-types/:id",
+          "description": "Delete fee type",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/fees/fee-structures",
+          "description": "Create fee structure",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "schoolId": "string (UUID, required)",
+            "feeTypeId": "string (UUID, required)",
+            "classId": "string (UUID, required)",
+            "academicYearId": "string (UUID, required)",
+            "amount": "number (required)",
+            "dueDate": "string (ISO date, optional)",
+            "installmentAllowed": "boolean (optional)",
+            "maxInstallments": "number (optional, min: 1)",
+            "lateFeePercentage": "number (optional)",
+            "isActive": "boolean (optional)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/fees/fee-structures",
+          "description": "Get all fee structures",
+          "roles": [],
+          "queryParameters": {
+            "feeTypeId": "string (UUID, optional)",
+            "classId": "string (UUID, optional)",
+            "academicYearId": "string (UUID, optional)",
+            "page": "number (default: 1)",
+            "limit": "number (default: 10)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/fees/student-fees",
+          "description": "Create student fee",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "studentId": "string (UUID, required)",
+            "feeTypeId": "string (UUID, required)",
+            "academicYearId": "string (UUID, required)",
+            "totalAmount": "number (required)",
+            "dueDate": "string (ISO date, optional)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/fees/student-fees",
+          "description": "Get all student fees",
+          "roles": [],
+          "queryParameters": {
+            "studentId": "string (UUID, optional)",
+            "feeTypeId": "string (UUID, optional)",
+            "academicYearId": "string (UUID, optional)",
+            "status": "enum (PENDING, PAID, PARTIAL, OVERDUE, optional)",
+            "page": "number (default: 1)",
+            "limit": "number (default: 10)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/fees/student-fees/:id",
+          "description": "Get single student fee",
+          "roles": [],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/fees/student-fees/:id/invoice",
+          "description": "Get fee invoice",
+          "roles": [],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/fees/overview",
+          "description": "Get fee overview statistics",
+          "roles": [],
+          "queryParameters": {
+            "academicYearId": "string (UUID, optional)",
+            "startDate": "string (ISO date, optional)",
+            "endDate": "string (ISO date, optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/fees/payments",
+          "description": "Create fee payment",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "feeId": "string (UUID, required)",
+            "studentId": "string (UUID, required)",
+            "amount": "number (required)",
+            "paymentMethod": "enum (CASH, CARD, BANK_TRANSFER, CHEQUE, ONLINE, required)",
+            "transactionId": "string (optional)",
+            "paymentDate": "string (ISO date, required)",
+            "receivedBy": "string (UUID, optional)",
+            "remarks": "string (optional)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/fees/payments",
+          "description": "Get all fee payments",
+          "roles": [],
+          "queryParameters": {
+            "feeId": "string (UUID, optional)",
+            "studentId": "string (UUID, optional)",
+            "paymentMethod": "enum (CASH, CARD, BANK_TRANSFER, CHEQUE, ONLINE, optional)",
+            "startDate": "string (ISO date, optional)",
+            "endDate": "string (ISO date, optional)",
+            "page": "number (default: 1)",
+            "limit": "number (default: 10)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/fees/expenses",
+          "description": "Create expense",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "schoolId": "string (UUID, required)",
+            "category": "enum (SALARIES, UTILITIES, MAINTENANCE, SUPPLIES, TRANSPORT, HOSTEL, OTHER, required)",
+            "amount": "number (required)",
+            "description": "string (optional)",
+            "expenseDate": "string (ISO date, required)",
+            "approvedBy": "string (UUID, optional)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/fees/expenses",
+          "description": "Get all expenses",
+          "roles": [],
+          "queryParameters": {
+            "category": "enum (SALARIES, UTILITIES, MAINTENANCE, SUPPLIES, TRANSPORT, HOSTEL, OTHER, optional)",
+            "startDate": "string (ISO date, optional)",
+            "endDate": "string (ISO date, optional)",
+            "page": "number (default: 1)",
+            "limit": "number (default: 10)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/fees/expenses/overview",
+          "description": "Get expense overview statistics",
+          "roles": [],
+          "queryParameters": {
+            "startDate": "string (ISO date, optional)",
+            "endDate": "string (ISO date, optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/fees/expenses/:id",
+          "description": "Get single expense",
+          "roles": [],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "PATCH",
+          "path": "/admin/fees/expenses/:id",
+          "description": "Update expense",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "requestBody": {
+            "category": "enum (SALARIES, UTILITIES, MAINTENANCE, SUPPLIES, TRANSPORT, HOSTEL, OTHER, optional)",
+            "amount": "number (optional)",
+            "description": "string (optional)",
+            "expenseDate": "string (ISO date, optional)",
+            "approvedBy": "string (UUID, optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "DELETE",
+          "path": "/admin/fees/expenses/:id",
+          "description": "Delete expense",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        }
+      ]
+    },
+    "communication": {
+      "basePath": "/admin/communication",
+      "description": "Communication management APIs",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/admin/communication/announcements",
+          "description": "Create announcement",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "schoolId": "string (UUID, required)",
+            "createdBy": "string (UUID, required)",
+            "title": "string (required)",
+            "content": "string (required)",
+            "category": "enum (GENERAL, ACADEMIC, EVENT, EMERGENCY, HOLIDAY, required)",
+            "priority": "enum (LOW, MEDIUM, HIGH, URGENT, optional)",
+            "targetAudience": "enum (ALL, STUDENTS, TEACHERS, PARENTS, SPECIFIC_CLASS, SPECIFIC_SECTION, required)",
+            "scheduledAt": "string (ISO date, optional)",
+            "targets": "array of { classId?: UUID, sectionId?: UUID } (optional)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/communication/announcements",
+          "description": "Get all announcements",
+          "roles": [],
+          "queryParameters": {
+            "search": "string (optional)",
+            "category": "enum (GENERAL, ACADEMIC, EVENT, EMERGENCY, HOLIDAY, optional)",
+            "priority": "enum (LOW, MEDIUM, HIGH, URGENT, optional)",
+            "targetAudience": "enum (ALL, STUDENTS, TEACHERS, PARENTS, SPECIFIC_CLASS, SPECIFIC_SECTION, optional)",
+            "page": "number (default: 1)",
+            "limit": "number (default: 10)",
+            "sortBy": "string",
+            "sortOrder": "enum ('asc', 'desc')"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/communication/announcements/:id",
+          "description": "Get single announcement",
+          "roles": [],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "PATCH",
+          "path": "/admin/communication/announcements/:id",
+          "description": "Update announcement",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "requestBody": {
+            "title": "string (optional)",
+            "content": "string (optional)",
+            "category": "enum (GENERAL, ACADEMIC, EVENT, EMERGENCY, HOLIDAY, optional)",
+            "priority": "enum (LOW, MEDIUM, HIGH, URGENT, optional)",
+            "targetAudience": "enum (ALL, STUDENTS, TEACHERS, PARENTS, SPECIFIC_CLASS, SPECIFIC_SECTION, optional)",
+            "scheduledAt": "string (ISO date, optional)",
+            "targets": "array (optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "DELETE",
+          "path": "/admin/communication/announcements/:id",
+          "description": "Delete announcement",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/communication/announcements/sent",
+          "description": "Get sent announcements by current user",
+          "roles": [],
+          "queryParameters": {
+            "search": "string (optional)",
+            "category": "enum (optional)",
+            "page": "number (default: 1)",
+            "limit": "number (default: 10)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/communication/messages",
+          "description": "Create message",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "schoolId": "string (UUID, required)",
+            "senderId": "string (UUID, required)",
+            "recipientId": "string (UUID, required)",
+            "subject": "string (optional)",
+            "content": "string (required)",
+            "priority": "enum (LOW, MEDIUM, HIGH, URGENT, optional)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/communication/messages",
+          "description": "Get all messages",
+          "roles": [],
+          "queryParameters": {
+            "search": "string (optional)",
+            "senderId": "string (UUID, optional)",
+            "recipientId": "string (UUID, optional)",
+            "priority": "enum (LOW, MEDIUM, HIGH, URGENT, optional)",
+            "isRead": "boolean (optional)",
+            "page": "number (default: 1)",
+            "limit": "number (default: 10)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/communication/messages/:id",
+          "description": "Get single message",
+          "roles": [],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "PATCH",
+          "path": "/admin/communication/messages/:id/read",
+          "description": "Mark message as read",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "DELETE",
+          "path": "/admin/communication/messages/:id",
+          "description": "Delete message",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/communication/messages/unread-count",
+          "description": "Get unread messages count",
+          "roles": [],
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/communication/messages/sent",
+          "description": "Get sent messages by current user",
+          "roles": [],
+          "queryParameters": {
+            "search": "string (optional)",
+            "recipientId": "string (UUID, optional)",
+            "page": "number (default: 1)",
+            "limit": "number (default: 10)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/communication/messages/bulk",
+          "description": "Send bulk messages",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "schoolId": "string (UUID, required)",
+            "senderId": "string (UUID, required)",
+            "recipientIds": "array of UUIDs (required)",
+            "subject": "string (optional)",
+            "content": "string (required)",
+            "priority": "enum (LOW, MEDIUM, HIGH, URGENT, optional)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/communication/templates",
+          "description": "Create communication template",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "schoolId": "string (UUID, required)",
+            "templateName": "string (required)",
+            "templateType": "string (required)",
+            "subject": "string (optional)",
+            "content": "string (required)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/communication/templates",
+          "description": "Get all templates",
+          "roles": [],
+          "queryParameters": {
+            "templateType": "string (optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/communication/templates/:id",
+          "description": "Get single template",
+          "roles": [],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "PATCH",
+          "path": "/admin/communication/templates/:id",
+          "description": "Update template",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "requestBody": {
+            "templateName": "string (optional)",
+            "templateType": "string (optional)",
+            "subject": "string (optional)",
+            "content": "string (optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "DELETE",
+          "path": "/admin/communication/templates/:id",
+          "description": "Delete template",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/communication/recipients",
+          "description": "Get recipients by role",
+          "roles": [],
+          "queryParameters": {
+            "role": "enum (SUPER_ADMIN, SCHOOL_ADMIN, TEACHER, STUDENT, PARENT, required)",
+            "classId": "string (UUID, optional)",
+            "sectionId": "string (UUID, optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/communication/summary",
+          "description": "Get communication summary",
+          "roles": [],
+          "response": "200 OK"
+        }
+      ]
+    },
+    "examinations": {
+      "basePath": "/admin/examinations",
+      "description": "Examination management APIs",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/admin/examinations",
+          "description": "Create examination",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "schoolId": "string (UUID, required)",
+            "examName": "string (required)",
+            "examType": "enum (QUIZ, MID_TERM, FINAL, ASSIGNMENT, PROJECT, required)",
+            "academicYearId": "string (UUID, required)",
+            "description": "string (optional)",
+            "startDate": "string (ISO date, optional)",
+            "endDate": "string (ISO date, optional)",
+            "durationMinutes": "number (optional, min: 1)",
+            "createdBy": "string (UUID, required)",
+            "examClasses": "array of { classId: UUID, sectionId?: UUID } (optional)",
+            "examSubjects": "array of { subjectId: UUID, totalMarks: number, passingMarks?: number, weightage?: number } (optional)",
+            "examSchedules": "array of { classId: UUID, sectionId?: UUID, subjectId: UUID, examDate: ISO date, startTime: string (HH:mm), endTime: string (HH:mm), roomNumber?: string } (optional)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/examinations",
+          "description": "Get all examinations",
+          "roles": [],
+          "queryParameters": {
+            "search": "string (optional)",
+            "examType": "enum (QUIZ, MID_TERM, FINAL, ASSIGNMENT, PROJECT, optional)",
+            "academicYearId": "string (UUID, optional)",
+            "status": "enum (SCHEDULED, ONGOING, COMPLETED, CANCELLED, optional)",
+            "page": "number (default: 1)",
+            "limit": "number (default: 10)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/examinations/upcoming",
+          "description": "Get upcoming exams",
+          "roles": [],
+          "queryParameters": {
+            "academicYearId": "string (UUID, optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/examinations/ongoing",
+          "description": "Get ongoing exams",
+          "roles": [],
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/examinations/completed",
+          "description": "Get completed exams",
+          "roles": [],
+          "queryParameters": {
+            "academicYearId": "string (UUID, optional)",
+            "year": "number (optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/examinations/calendar",
+          "description": "Get exam calendar",
+          "roles": [],
+          "queryParameters": {
+            "month": "number (optional)",
+            "year": "number (optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/examinations/activities",
+          "description": "Get recent exam activities",
+          "roles": [],
+          "queryParameters": {
+            "limit": "number (optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/examinations/:id",
+          "description": "Get single examination",
+          "roles": [],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "PATCH",
+          "path": "/admin/examinations/:id",
+          "description": "Update examination",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "requestBody": {
+            "examName": "string (optional)",
+            "examType": "enum (optional)",
+            "description": "string (optional)",
+            "startDate": "string (ISO date, optional)",
+            "endDate": "string (ISO date, optional)",
+            "durationMinutes": "number (optional)",
+            "status": "enum (SCHEDULED, ONGOING, COMPLETED, CANCELLED, optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "DELETE",
+          "path": "/admin/examinations/:id",
+          "description": "Delete examination",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/examinations/marks",
+          "description": "Create exam marks",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "examId": "string (UUID, required)",
+            "enteredBy": "string (UUID, required)",
+            "marks": "array of { studentId: UUID, subjectId: UUID, obtainedMarks?: number, totalMarks: number, status?: enum } (required)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/examinations/grade-scales",
+          "description": "Create grade scale",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "schoolId": "string (UUID, required)",
+            "classId": "string (UUID, required)",
+            "scaleName": "string (required)",
+            "gradeRanges": "array of { grade: string, minPercentage: number, maxPercentage: number } (required)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/examinations/grade-scales",
+          "description": "Get all grade scales",
+          "roles": [],
+          "queryParameters": {
+            "classId": "string (UUID, optional)",
+            "scaleName": "string (optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/examinations/grade-configurations",
+          "description": "Create grade configuration",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "schoolId": "string (UUID, required)",
+            "classId": "string (UUID, required)",
+            "gradeScaleId": "string (UUID, required)",
+            "passingPercentage": "number (required)",
+            "maxMarks": "number (required)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/examinations/grade-configurations",
+          "description": "Get all grade configurations",
+          "roles": [],
+          "queryParameters": {
+            "classId": "string (UUID, optional)"
+          },
+          "response": "200 OK"
+        }
+      ]
+    },
+    "transport": {
+      "basePath": "/admin/transport",
+      "description": "Transport management APIs",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/admin/transport/buses",
+          "description": "Create bus",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "schoolId": "string (UUID, required)",
+            "registrationNumber": "string (required)",
+            "capacity": "number (required, min: 1)",
+            "busType": "enum (STANDARD, DELUXE, LUXURY, optional)",
+            "insuranceNumber": "string (optional)",
+            "insuranceExpiry": "string (ISO date, optional)",
+            "lastMaintenanceDate": "string (ISO date, optional)",
+            "nextMaintenanceDate": "string (ISO date, optional)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/transport/buses",
+          "description": "Get all buses",
+          "roles": [],
+          "queryParameters": {
+            "status": "enum (ACTIVE, INACTIVE, MAINTENANCE, optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/transport/drivers",
+          "description": "Create driver",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "schoolId": "string (UUID, required)",
+            "name": "string (required)",
+            "licenseNumber": "string (required)",
+            "phone": "string (optional)",
+            "email": "string (email, optional)",
+            "address": "string (optional)",
+            "experienceYears": "number (optional, min: 0)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/transport/drivers",
+          "description": "Get all drivers",
+          "roles": [],
+          "response": "200 OK"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/transport/routes",
+          "description": "Create transport route",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "schoolId": "string (UUID, required)",
+            "routeName": "string (required)",
+            "busId": "string (UUID, required)",
+            "driverId": "string (UUID, required)",
+            "status": "enum (ACTIVE, INACTIVE, optional)",
+            "monthlyFee": "number (optional)",
+            "yearlyFee": "number (optional)",
+            "stops": "array of { stopName: string, stopAddress?: string, pickupTime?: string, dropTime?: string, stopOrder: number } (optional)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/transport/routes",
+          "description": "Get all transport routes",
+          "roles": [],
+          "queryParameters": {
+            "status": "enum (ACTIVE, INACTIVE, optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/transport/student-transports",
+          "description": "Assign student to transport",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "studentId": "string (UUID, required)",
+            "routeId": "string (UUID, required)",
+            "pickupStopId": "string (UUID, optional)",
+            "dropStopId": "string (UUID, optional)",
+            "feeStructure": "string (optional)",
+            "status": "enum (ACTIVE, INACTIVE, SUSPENDED, optional)",
+            "assignedDate": "string (ISO date, required)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/transport/student-transports",
+          "description": "Get all student transport assignments",
+          "roles": [],
+          "queryParameters": {
+            "routeId": "string (UUID, optional)",
+            "studentId": "string (UUID, optional)"
+          },
+          "response": "200 OK"
+        }
+      ]
+    },
+    "hostel": {
+      "basePath": "/admin/hostel",
+      "description": "Hostel management APIs",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/admin/hostel/buildings",
+          "description": "Create hostel building",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "schoolId": "string (UUID, required)",
+            "buildingName": "string (required)",
+            "buildingType": "enum (BOYS, GIRLS, MIXED, required)",
+            "numberOfFloors": "number (optional, min: 1)",
+            "facilities": "object (optional)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/hostel/buildings",
+          "description": "Get all hostel buildings",
+          "roles": [],
+          "response": "200 OK"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/hostel/rooms",
+          "description": "Create hostel room",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "buildingId": "string (UUID, required)",
+            "roomNumber": "string (required)",
+            "floorNumber": "number (optional, min: 1)",
+            "capacity": "number (required, min: 1)",
+            "roomType": "enum (SINGLE, DOUBLE, TRIPLE, DORMITORY, required)",
+            "facilities": "object (optional)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/hostel/rooms",
+          "description": "Get all hostel rooms",
+          "roles": [],
+          "queryParameters": {
+            "buildingId": "string (UUID, optional)",
+            "status": "enum (AVAILABLE, OCCUPIED, MAINTENANCE, optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/hostel/rooms/:id",
+          "description": "Get single room",
+          "roles": [],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "PATCH",
+          "path": "/admin/hostel/rooms/:id",
+          "description": "Update room",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "requestBody": {
+            "roomNumber": "string (optional)",
+            "floorNumber": "number (optional)",
+            "capacity": "number (optional)",
+            "roomType": "enum (optional)",
+            "facilities": "object (optional)",
+            "status": "enum (AVAILABLE, OCCUPIED, MAINTENANCE, optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "DELETE",
+          "path": "/admin/hostel/rooms/:id",
+          "description": "Delete room",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/hostel/overview",
+          "description": "Get hostel overview statistics",
+          "roles": [],
+          "response": "200 OK"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/hostel/allocations",
+          "description": "Create hostel allocation",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "studentId": "string (UUID, required)",
+            "roomId": "string (UUID, required)",
+            "bedNumber": "string (required)",
+            "wardenId": "string (UUID, optional)",
+            "checkInDate": "string (ISO date, required)",
+            "checkOutDate": "string (ISO date, optional)",
+            "status": "enum (ACTIVE, COMPLETED, CANCELLED, optional)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/hostel/allocations",
+          "description": "Get all hostel allocations",
+          "roles": [],
+          "queryParameters": {
+            "buildingId": "string (UUID, optional)",
+            "roomId": "string (UUID, optional)",
+            "studentId": "string (UUID, optional)",
+            "status": "enum (ACTIVE, COMPLETED, CANCELLED, optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/hostel/allocations/:id",
+          "description": "Get single allocation",
+          "roles": [],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "PATCH",
+          "path": "/admin/hostel/allocations/:id",
+          "description": "Update allocation",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "requestBody": {
+            "roomId": "string (UUID, optional)",
+            "bedNumber": "string (optional)",
+            "wardenId": "string (UUID, optional)",
+            "checkOutDate": "string (ISO date, optional)",
+            "status": "enum (ACTIVE, COMPLETED, CANCELLED, optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "DELETE",
+          "path": "/admin/hostel/allocations/:id",
+          "description": "Delete allocation",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/hostel/complaints",
+          "description": "Create hostel complaint",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "studentId": "string (UUID, required)",
+            "category": "string (required)",
+            "description": "string (required)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/hostel/complaints",
+          "description": "Get all hostel complaints",
+          "roles": [],
+          "queryParameters": {
+            "studentId": "string (UUID, optional)",
+            "status": "enum (PENDING, IN_PROGRESS, RESOLVED, CLOSED, optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "PATCH",
+          "path": "/admin/hostel/complaints/:id",
+          "description": "Update complaint",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "requestBody": {
+            "status": "enum (PENDING, IN_PROGRESS, RESOLVED, CLOSED, optional)",
+            "resolvedBy": "string (UUID, optional)",
+            "resolutionNotes": "string (optional)"
+          },
+          "response": "200 OK"
+        }
+      ]
+    },
+    "inventory": {
+      "basePath": "/admin/inventory",
+      "description": "Office inventory management APIs",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/admin/inventory/categories",
+          "description": "Create inventory category",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "schoolId": "string (UUID, required)",
+            "categoryName": "string (required)",
+            "description": "string (optional)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/inventory/categories",
+          "description": "Get all categories",
+          "roles": [],
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/inventory/categories/:id",
+          "description": "Get single category",
+          "roles": [],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "PATCH",
+          "path": "/admin/inventory/categories/:id",
+          "description": "Update category",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "requestBody": {
+            "categoryName": "string (optional)",
+            "description": "string (optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "DELETE",
+          "path": "/admin/inventory/categories/:id",
+          "description": "Delete category",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/inventory/suppliers",
+          "description": "Create supplier",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "schoolId": "string (UUID, required)",
+            "supplierName": "string (required)",
+            "contactPerson": "string (optional)",
+            "phone": "string (optional)",
+            "email": "string (email, optional)",
+            "address": "string (optional)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/inventory/suppliers",
+          "description": "Get all suppliers",
+          "roles": [],
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/inventory/suppliers/:id",
+          "description": "Get single supplier",
+          "roles": [],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "PATCH",
+          "path": "/admin/inventory/suppliers/:id",
+          "description": "Update supplier",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "requestBody": {
+            "supplierName": "string (optional)",
+            "contactPerson": "string (optional)",
+            "phone": "string (optional)",
+            "email": "string (email, optional)",
+            "address": "string (optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "DELETE",
+          "path": "/admin/inventory/suppliers/:id",
+          "description": "Delete supplier",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/inventory/items",
+          "description": "Create inventory item",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "schoolId": "string (UUID, required)",
+            "categoryId": "string (UUID, required)",
+            "itemName": "string (required)",
+            "description": "string (optional)",
+            "unitOfMeasurement": "string (required)",
+            "quantity": "number (required)",
+            "minQuantity": "number (optional)",
+            "location": "string (optional)",
+            "purchasePrice": "number (optional)",
+            "supplierId": "string (UUID, optional)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/inventory/items",
+          "description": "Get all inventory items",
+          "roles": [],
+          "queryParameters": {
+            "categoryId": "string (UUID, optional)",
+            "status": "enum (AVAILABLE, LOW_STOCK, OUT_OF_STOCK, optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/inventory/items/:id",
+          "description": "Get single item",
+          "roles": [],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "PATCH",
+          "path": "/admin/inventory/items/:id",
+          "description": "Update item",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "requestBody": {
+            "itemName": "string (optional)",
+            "description": "string (optional)",
+            "categoryId": "string (UUID, optional)",
+            "unitOfMeasurement": "string (optional)",
+            "quantity": "number (optional)",
+            "minQuantity": "number (optional)",
+            "location": "string (optional)",
+            "purchasePrice": "number (optional)",
+            "supplierId": "string (UUID, optional)",
+            "status": "enum (AVAILABLE, LOW_STOCK, OUT_OF_STOCK, optional)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "DELETE",
+          "path": "/admin/inventory/items/:id",
+          "description": "Delete item",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "pathParameters": {
+            "id": "string (UUID, required)"
+          },
+          "response": "200 OK"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/inventory/overview",
+          "description": "Get inventory overview statistics",
+          "roles": [],
+          "response": "200 OK"
+        },
+        {
+          "method": "POST",
+          "path": "/admin/inventory/transactions",
+          "description": "Create inventory transaction",
+          "roles": ["SUPER_ADMIN", "SCHOOL_ADMIN"],
+          "requestBody": {
+            "itemId": "string (UUID, required)",
+            "transactionType": "enum (IN, OUT, TRANSFER, ADJUSTMENT, required)",
+            "quantity": "number (required)",
+            "issuedTo": "string (optional)",
+            "receivedFrom": "string (optional)",
+            "purpose": "string (optional)",
+            "transactionDate": "string (ISO date, required)",
+            "performedBy": "string (UUID, required)"
+          },
+          "response": "201 Created"
+        },
+        {
+          "method": "GET",
+          "path": "/admin/inventory/transactions",
+          "description": "Get all inventory transactions",
+          "roles": [],
+          "queryParameters": {
+            "itemId": "string (UUID, optional)",
+            "transactionType": "enum (IN, OUT, TRANSFER, ADJUSTMENT, optional)"
+          },
+          "response": "200 OK"
+        }
+      ]
+    }
+  },
+  "notes": {
+    "authentication": "All endpoints require JWT Bearer token in Authorization header",
+    "schoolId": "Most endpoints automatically get schoolId from interceptor, but some require it in request body",
+    "roles": "SUPER_ADMIN and SCHOOL_ADMIN roles are required for POST, PATCH, DELETE operations",
+    "pagination": "Most GET endpoints support pagination with 'page' and 'limit' query parameters",
+    "dateFormats": "All dates should be in ISO 8601 format (YYYY-MM-DD or YYYY-MM-DDTHH:mm:ssZ)",
+    "timeFormats": "Time fields should be in HH:mm format (24-hour format)",
+    "enums": "Enum values are case-sensitive and should match exactly as specified",
+    "uuid": "All ID fields are UUIDs (Universally Unique Identifiers)"
+  }
+}
+

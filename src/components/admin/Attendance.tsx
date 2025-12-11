@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
   Calendar as CalendarIcon, 
   Users, 
@@ -36,7 +36,6 @@ import {
 } from '../ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
-import { Checkbox } from '../ui/checkbox';
 import { cn } from '../ui/utils';
 import { Avatar, AvatarFallback } from '../ui/avatar';
 import {
@@ -45,17 +44,23 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
+import { adminService } from '../../services';
+import { ClassResponse } from '../../types/class.types';
+import { Student } from '../../types/student.types';
+import { 
+  AttendanceRecord as APIAttendanceRecord,
+  AttendanceStatus,
+  CreateAttendanceRequest,
+  AttendanceResponse,
+  AttendanceReport,
+  LeaveApplication,
+  CreateLeaveApplicationRequest
+} from '../../types/attendance.types';
+import { ApiException, getUserFriendlyError } from '../../utils/errors';
+import { schoolStorage, userStorage } from '../../utils/storage';
 
-interface Student {
-  id: string;
-  name: string;
-  rollNo: string;
-  status: 'present' | 'absent' | 'late' | 'excused' | null;
-  avatar?: string;
-}
-
-interface AttendanceRecord {
+interface LocalAttendanceRecord {
   date: string;
   class: string;
   section: string;
@@ -66,71 +71,269 @@ interface AttendanceRecord {
   total: number;
 }
 
-const classes = [
-  { id: '1', name: 'Grade 1', sections: ['A', 'B', 'C'] },
-  { id: '2', name: 'Grade 7', sections: ['A', 'B', 'C'] },
-  { id: '3', name: 'Grade 10', sections: ['A', 'B', 'C', 'D'] },
-  { id: '4', name: 'Grade 11', sections: ['A', 'B'] },
-  { id: '5', name: 'Grade 12', sections: ['A', 'B'] },
-];
-
-const mockStudents: Student[] = [
-  { id: '1', name: 'Emily Rodriguez', rollNo: 'ST001', status: null },
-  { id: '2', name: 'James Wilson', rollNo: 'ST002', status: null },
-  { id: '3', name: 'Sophia Lee', rollNo: 'ST003', status: null },
-  { id: '4', name: 'Oliver Thompson', rollNo: 'ST004', status: null },
-  { id: '5', name: 'Ava Martinez', rollNo: 'ST005', status: null },
-  { id: '6', name: 'Noah Garcia', rollNo: 'ST006', status: null },
-  { id: '7', name: 'Isabella Brown', rollNo: 'ST007', status: null },
-  { id: '8', name: 'Lucas Davis', rollNo: 'ST008', status: null },
-  { id: '9', name: 'Mia Anderson', rollNo: 'ST009', status: null },
-  { id: '10', name: 'Ethan White', rollNo: 'ST010', status: null },
-];
-
-const mockAttendanceHistory: AttendanceRecord[] = [
-  { date: '2024-11-06', class: 'Grade 10', section: 'A', present: 35, absent: 2, late: 1, excused: 0, total: 38 },
-  { date: '2024-11-05', class: 'Grade 10', section: 'A', present: 36, absent: 1, late: 1, excused: 0, total: 38 },
-  { date: '2024-11-04', class: 'Grade 10', section: 'A', present: 34, absent: 3, late: 1, excused: 0, total: 38 },
-  { date: '2024-11-01', class: 'Grade 10', section: 'A', present: 37, absent: 1, late: 0, excused: 0, total: 38 },
-  { date: '2024-10-31', class: 'Grade 10', section: 'A', present: 35, absent: 2, late: 1, excused: 0, total: 38 },
-];
+interface StudentWithAttendance extends Student {
+  status: AttendanceStatus | null;
+  attendanceId?: string;
+}
 
 export function Attendance() {
   const [selectedClass, setSelectedClass] = useState('');
+  const [selectedClassId, setSelectedClassId] = useState('');
   const [selectedSection, setSelectedSection] = useState('');
+  const [selectedSectionId, setSelectedSectionId] = useState('');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [students, setStudents] = useState<Student[]>(mockStudents);
+  const [students, setStudents] = useState<StudentWithAttendance[]>([]);
+  const [classes, setClasses] = useState<ClassResponse[]>([]);
   const [activeTab, setActiveTab] = useState('mark');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [attendanceHistory, setAttendanceHistory] = useState<LocalAttendanceRecord[]>([]);
+  const [attendanceReport, setAttendanceReport] = useState<AttendanceReport | null>(null);
 
-  const currentMonth = selectedDate.toLocaleString('default', { month: 'long', year: 'numeric' });
-  const sections = classes.find(c => c.id === selectedClass)?.sections || [];
+  // Fetch classes on mount
+  useEffect(() => {
+    fetchClasses();
+  }, []);
 
-  const handleMarkAttendance = (studentId: string, status: 'present' | 'absent' | 'late' | 'excused') => {
+  // Fetch students when class and section are selected
+  useEffect(() => {
+    if (selectedClassId && selectedSectionId) {
+      fetchStudents();
+      fetchExistingAttendance();
+    }
+  }, [selectedClassId, selectedSectionId, selectedDate]);
+
+  // Fetch attendance history when reports tab is active
+  useEffect(() => {
+    if (activeTab === 'reports') {
+      fetchAttendanceHistory();
+    }
+  }, [activeTab]);
+
+  const fetchClasses = async () => {
+    try {
+      const response = await adminService.getClasses();
+      setClasses(response.classes || []);
+    } catch (error: any) {
+      console.error('Error fetching classes:', error);
+      toast.error('Failed to load classes');
+    }
+  };
+
+  const fetchStudents = async () => {
+    if (!selectedClassId || !selectedSectionId) return;
+    
+    setIsLoading(true);
+    try {
+      const response = await adminService.getStudents({
+        class: selectedClass,
+      });
+      
+      // Filter students by section
+      const sectionStudents = (response.students || []).filter((student: any) => {
+        const sectionMatch = selectedSectionId && student.currentSectionId === selectedSectionId;
+        return sectionMatch;
+      });
+
+      // Normalize student data
+      const normalizedStudents: StudentWithAttendance[] = sectionStudents.map((student: any) => ({
+        id: student.id,
+        name: student.name || `${student.firstName || ''} ${student.lastName || ''}`.trim(),
+        rollNo: student.rollNo || '',
+        status: null,
+        email: student.email,
+        phone: student.phone,
+      }));
+
+      setStudents(normalizedStudents);
+    } catch (error: any) {
+      console.error('Error fetching students:', error);
+      let errorMessage = 'Failed to load students';
+      if (error instanceof ApiException) {
+        errorMessage = getUserFriendlyError(error);
+      }
+      toast.error(errorMessage);
+      setStudents([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchExistingAttendance = async () => {
+    if (!selectedClassId || !selectedSectionId || !selectedDate) return;
+
+    try {
+      const dateStr = selectedDate.toISOString().split('T')[0];
+      const response = await adminService.getAttendance({
+        classId: selectedClassId,
+        sectionId: selectedSectionId,
+        startDate: dateStr,
+        endDate: dateStr,
+      });
+
+      // Map existing attendance to students
+      if (response.attendances && response.attendances.length > 0) {
+        const attendanceMap = new Map<string, APIAttendanceRecord>();
+        response.attendances.forEach((att: APIAttendanceRecord) => {
+          attendanceMap.set(att.studentId, att);
+        });
+
+        setStudents(prevStudents => 
+          prevStudents.map(student => {
+            const att = attendanceMap.get(student.id);
+            return att ? {
+              ...student,
+              status: att.status,
+              attendanceId: att.id,
+            } : student;
+          })
+        );
+      }
+    } catch (error: any) {
+      console.error('Error fetching existing attendance:', error);
+      // Don't show error toast for this, it's okay if no attendance exists
+    }
+  };
+
+  const fetchAttendanceHistory = async () => {
+    try {
+      // Get last 30 days
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30);
+
+      const response = await adminService.getAttendance({
+        startDate: startDate.toISOString().split('T')[0],
+        endDate: endDate.toISOString().split('T')[0],
+        limit: 100,
+      });
+
+      // Group by date, class, section
+      const grouped = new Map<string, LocalAttendanceRecord>();
+      
+      (response.attendances || []).forEach((att: APIAttendanceRecord) => {
+        const key = `${att.attendanceDate}-${att.classId}-${att.sectionId}`;
+        if (!grouped.has(key)) {
+          grouped.set(key, {
+            date: att.attendanceDate,
+            class: att.className || '',
+            section: att.sectionName || '',
+            present: 0,
+            absent: 0,
+            late: 0,
+            excused: 0,
+            total: 0,
+          });
+        }
+        
+        const record = grouped.get(key)!;
+        record.total++;
+        if (att.status === 'PRESENT') record.present++;
+        else if (att.status === 'ABSENT') record.absent++;
+        else if (att.status === 'LATE') record.late++;
+        else if (att.status === 'EXCUSED') record.excused++;
+      });
+
+      setAttendanceHistory(Array.from(grouped.values()));
+    } catch (error: any) {
+      console.error('Error fetching attendance history:', error);
+      toast.error('Failed to load attendance history');
+    }
+  };
+
+  const handleClassChange = (classId: string) => {
+    setSelectedClass(classId);
+    const selectedClassObj = classes.find(c => c.id === classId);
+    setSelectedClassId(classId);
+    setSelectedSection('');
+    setSelectedSectionId('');
+    setStudents([]);
+  };
+
+  const handleSectionChange = (sectionId: string) => {
+    setSelectedSection(sectionId);
+    setSelectedSectionId(sectionId);
+  };
+
+  const handleMarkAttendance = (studentId: string, status: AttendanceStatus) => {
     setStudents(students.map(s => 
       s.id === studentId ? { ...s, status } : s
     ));
   };
 
-  const handleMarkAll = (status: 'present' | 'absent') => {
+  const handleMarkAll = (status: 'PRESENT' | 'ABSENT') => {
     setStudents(students.map(s => ({ ...s, status })));
-    toast.success(`All students marked as ${status}`);
+    toast.success(`All students marked as ${status.toLowerCase()}`);
   };
 
-  const handleSubmitAttendance = () => {
+  const handleSubmitAttendance = async () => {
+    if (!selectedClassId || !selectedSectionId || !selectedDate) {
+      toast.error('Please select class, section, and date');
+      return;
+    }
+
     const unmarked = students.filter(s => !s.status).length;
     if (unmarked > 0) {
       toast.error(`Please mark attendance for all ${unmarked} students`);
       return;
     }
-    toast.success('Attendance submitted successfully!');
+
+    setIsSubmitting(true);
+    try {
+      const schoolId = schoolStorage.getSchoolId();
+      const currentUser = userStorage.getUser();
+      const markedBy = currentUser?.id || currentUser?.uuid || '';
+
+      if (!schoolId || !markedBy) {
+        toast.error('Unable to identify school or user');
+        return;
+      }
+
+      const dateStr = selectedDate.toISOString().split('T')[0];
+      const promises = students.map(student => {
+        const request: CreateAttendanceRequest = {
+          schoolId,
+          studentId: student.id,
+          classId: selectedClassId,
+          sectionId: selectedSectionId,
+          attendanceDate: dateStr,
+          status: student.status!,
+          markedBy,
+        };
+
+        // If attendance already exists, update it instead
+        if (student.attendanceId) {
+          return adminService.updateAttendance(student.attendanceId, {
+            status: student.status!,
+          });
+        } else {
+          return adminService.createAttendance(request);
+        }
+      });
+
+      await Promise.all(promises);
+      toast.success('Attendance submitted successfully!');
+      
+      // Refresh attendance data
+      await fetchExistingAttendance();
+    } catch (error: any) {
+      console.error('Error submitting attendance:', error);
+      let errorMessage = 'Failed to submit attendance';
+      if (error instanceof ApiException) {
+        errorMessage = getUserFriendlyError(error);
+      }
+      toast.error(errorMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const getAttendanceStats = () => {
-    const present = students.filter(s => s.status === 'present').length;
-    const absent = students.filter(s => s.status === 'absent').length;
-    const late = students.filter(s => s.status === 'late').length;
-    const excused = students.filter(s => s.status === 'excused').length;
+    const present = students.filter(s => s.status === 'PRESENT').length;
+    const absent = students.filter(s => s.status === 'ABSENT').length;
+    const late = students.filter(s => s.status === 'LATE').length;
+    const excused = students.filter(s => s.status === 'EXCUSED').length;
     const total = students.length;
 
     return { present, absent, late, excused, total };
@@ -138,10 +341,12 @@ export function Attendance() {
 
   const stats = getAttendanceStats();
 
-  const filteredStudents = students.filter(student =>
-    student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    student.rollNo.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredStudents = useMemo(() => {
+    return students.filter(student =>
+      student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      student.rollNo.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [students, searchQuery]);
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('en-US', { 
@@ -151,6 +356,10 @@ export function Attendance() {
       day: 'numeric' 
     });
   };
+
+  // Get sections for selected class
+  const selectedClassObj = classes.find(c => c.id === selectedClassId);
+  const sections = selectedClassObj?.sections || [];
 
   return (
     <div className="space-y-6">
@@ -181,7 +390,7 @@ export function Attendance() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="space-y-2">
                 <label className="text-sm text-gray-700 dark:text-gray-300">Select Class</label>
-                <Select value={selectedClass} onValueChange={setSelectedClass}>
+                <Select value={selectedClassId} onValueChange={handleClassChange}>
                   <SelectTrigger>
                     <SelectValue placeholder="Choose class" />
                   </SelectTrigger>
@@ -198,17 +407,17 @@ export function Attendance() {
               <div className="space-y-2">
                 <label className="text-sm text-gray-700 dark:text-gray-300">Select Section</label>
                 <Select 
-                  value={selectedSection} 
-                  onValueChange={setSelectedSection}
-                  disabled={!selectedClass}
+                  value={selectedSectionId} 
+                  onValueChange={handleSectionChange}
+                  disabled={!selectedClassId}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Choose section" />
                   </SelectTrigger>
                   <SelectContent>
                     {sections.map(section => (
-                      <SelectItem key={section} value={section}>
-                        Section {section}
+                      <SelectItem key={section.id || section.uuid} value={section.id || section.uuid}>
+                        {section.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -247,9 +456,9 @@ export function Attendance() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => handleMarkAll('present')}
+                    onClick={() => handleMarkAll('PRESENT')}
                     className="flex-1"
-                    disabled={!selectedClass || !selectedSection}
+                    disabled={!selectedClassId || !selectedSectionId}
                   >
                     <UserCheck className="w-4 h-4 mr-1" />
                     All Present
@@ -257,9 +466,9 @@ export function Attendance() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => handleMarkAll('absent')}
+                    onClick={() => handleMarkAll('ABSENT')}
                     className="flex-1"
-                    disabled={!selectedClass || !selectedSection}
+                    disabled={!selectedClassId || !selectedSectionId}
                   >
                     <UserX className="w-4 h-4 mr-1" />
                     All Absent
@@ -268,17 +477,17 @@ export function Attendance() {
               </div>
             </div>
 
-            {selectedClass && selectedSection && (
+            {selectedClassId && selectedSectionId && (
               <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-800">
                 <p className="text-sm text-gray-700 dark:text-gray-300">
-                  <span className="font-medium">Marking for:</span> {classes.find(c => c.id === selectedClass)?.name} - Section {selectedSection} • {formatDate(selectedDate)}
+                  <span className="font-medium">Marking for:</span> {selectedClassObj?.name} - Section {sections.find(s => (s.id || s.uuid) === selectedSectionId)?.name} • {formatDate(selectedDate)}
                 </p>
               </div>
             )}
           </Card>
 
           {/* Statistics */}
-          {selectedClass && selectedSection && (
+          {selectedClassId && selectedSectionId && (
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               <Card className="p-4">
                 <div className="flex items-center gap-3">
@@ -343,7 +552,7 @@ export function Attendance() {
           )}
 
           {/* Student List */}
-          {selectedClass && selectedSection && (
+          {selectedClassId && selectedSectionId && (
             <Card className="p-6">
               <div className="flex items-center gap-4 mb-6">
                 <div className="relative flex-1">
@@ -357,112 +566,123 @@ export function Attendance() {
                 </div>
               </div>
 
-              <div className="border rounded-lg overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-gray-50 dark:bg-gray-800">
-                      <TableHead>Roll No</TableHead>
-                      <TableHead>Student Name</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredStudents.map((student) => (
-                      <TableRow key={student.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                        <TableCell className="text-gray-700 dark:text-gray-300">
-                          {student.rollNo}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <Avatar className="w-10 h-10">
-                              <AvatarFallback className="bg-gradient-to-br from-[#0A66C2] to-[#0052A3] text-white">
-                                {student.name.split(' ').map(n => n[0]).join('')}
-                              </AvatarFallback>
-                            </Avatar>
-                            <span className="text-gray-900 dark:text-white">{student.name}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {student.status ? (
-                            <Badge 
-                              variant="outline"
-                              className={cn(
-                                student.status === 'present' && 'bg-green-100 text-green-700 border-green-200',
-                                student.status === 'absent' && 'bg-red-100 text-red-700 border-red-200',
-                                student.status === 'late' && 'bg-orange-100 text-orange-700 border-orange-200',
-                                student.status === 'excused' && 'bg-blue-100 text-blue-700 border-blue-200'
-                              )}
-                            >
-                              {student.status.charAt(0).toUpperCase() + student.status.slice(1)}
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="bg-gray-100 text-gray-700 border-gray-200">
-                              Not Marked
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              size="sm"
-                              variant={student.status === 'present' ? 'default' : 'outline'}
-                              className={cn(
-                                "h-8",
-                                student.status === 'present' && 'bg-green-600 hover:bg-green-700'
-                              )}
-                              onClick={() => handleMarkAttendance(student.id, 'present')}
-                            >
-                              <CheckCircle className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant={student.status === 'absent' ? 'default' : 'outline'}
-                              className={cn(
-                                "h-8",
-                                student.status === 'absent' && 'bg-red-600 hover:bg-red-700'
-                              )}
-                              onClick={() => handleMarkAttendance(student.id, 'absent')}
-                            >
-                              <XCircle className="w-4 h-4" />
-                            </Button>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button size="sm" variant="outline" className="h-8">
-                                  <MoreVertical className="w-4 h-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => handleMarkAttendance(student.id, 'late')}>
-                                  <Clock className="w-4 h-4 mr-2" />
-                                  Mark as Late
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleMarkAttendance(student.id, 'excused')}>
-                                  <CheckCircle className="w-4 h-4 mr-2" />
-                                  Mark as Excused
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                        </TableCell>
+              {isLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <p className="text-gray-600 dark:text-gray-400">Loading students...</p>
+                </div>
+              ) : filteredStudents.length === 0 ? (
+                <div className="flex items-center justify-center py-12">
+                  <p className="text-gray-600 dark:text-gray-400">No students found</p>
+                </div>
+              ) : (
+                <div className="border rounded-lg overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-gray-50 dark:bg-gray-800">
+                        <TableHead>Roll No</TableHead>
+                        <TableHead>Student Name</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredStudents.map((student) => (
+                        <TableRow key={student.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                          <TableCell className="text-gray-700 dark:text-gray-300">
+                            {student.rollNo || 'N/A'}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <Avatar className="w-10 h-10">
+                                <AvatarFallback className="bg-gradient-to-br from-[#0A66C2] to-[#0052A3] text-white">
+                                  {student.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
+                              <span className="text-gray-900 dark:text-white">{student.name}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {student.status ? (
+                              <Badge 
+                                variant="outline"
+                                className={cn(
+                                  student.status === 'PRESENT' && 'bg-green-100 text-green-700 border-green-200',
+                                  student.status === 'ABSENT' && 'bg-red-100 text-red-700 border-red-200',
+                                  student.status === 'LATE' && 'bg-orange-100 text-orange-700 border-orange-200',
+                                  student.status === 'EXCUSED' && 'bg-blue-100 text-blue-700 border-blue-200'
+                                )}
+                              >
+                                {student.status.charAt(0) + student.status.slice(1).toLowerCase()}
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="bg-gray-100 text-gray-700 border-gray-200">
+                                Not Marked
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                size="sm"
+                                variant={student.status === 'PRESENT' ? 'default' : 'outline'}
+                                className={cn(
+                                  "h-8",
+                                  student.status === 'PRESENT' && 'bg-green-600 hover:bg-green-700'
+                                )}
+                                onClick={() => handleMarkAttendance(student.id, 'PRESENT')}
+                              >
+                                <CheckCircle className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant={student.status === 'ABSENT' ? 'default' : 'outline'}
+                                className={cn(
+                                  "h-8",
+                                  student.status === 'ABSENT' && 'bg-red-600 hover:bg-red-700'
+                                )}
+                                onClick={() => handleMarkAttendance(student.id, 'ABSENT')}
+                              >
+                                <XCircle className="w-4 h-4" />
+                              </Button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button size="sm" variant="outline" className="h-8">
+                                    <MoreVertical className="w-4 h-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem onClick={() => handleMarkAttendance(student.id, 'LATE')}>
+                                    <Clock className="w-4 h-4 mr-2" />
+                                    Mark as Late
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handleMarkAttendance(student.id, 'EXCUSED')}>
+                                    <CheckCircle className="w-4 h-4 mr-2" />
+                                    Mark as Excused
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
 
               <div className="flex justify-end mt-6">
                 <Button 
                   className="bg-[#0A66C2] hover:bg-[#0052A3]"
                   onClick={handleSubmitAttendance}
+                  disabled={isSubmitting}
                 >
-                  Submit Attendance
+                  {isSubmitting ? 'Submitting...' : 'Submit Attendance'}
                 </Button>
               </div>
             </Card>
           )}
 
-          {!selectedClass && (
+          {!selectedClassId && (
             <Card className="p-12 text-center">
               <CalendarIcon className="w-12 h-12 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg text-gray-900 dark:text-white mb-2">Select Class and Section</h3>
@@ -503,7 +723,7 @@ export function Attendance() {
             <Card className="lg:col-span-2 p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg text-gray-900 dark:text-white">
-                  {currentMonth}
+                  {selectedDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
                 </h3>
                 <div className="flex gap-2">
                   <Button variant="outline" size="icon">
@@ -514,53 +734,9 @@ export function Attendance() {
                   </Button>
                 </div>
               </div>
-
-              <div className="space-y-3">
-                <div className="grid grid-cols-7 gap-2 text-center text-sm text-gray-600 dark:text-gray-400 mb-2">
-                  <div>Sun</div>
-                  <div>Mon</div>
-                  <div>Tue</div>
-                  <div>Wed</div>
-                  <div>Thu</div>
-                  <div>Fri</div>
-                  <div>Sat</div>
-                </div>
-
-                <div className="grid grid-cols-7 gap-2">
-                  {Array.from({ length: 35 }, (_, i) => {
-                    const day = i - 2; // Adjust for calendar start
-                    const isToday = day === new Date().getDate();
-                    const hasData = day > 0 && day <= 30;
-                    const attendance = hasData ? Math.floor(Math.random() * 30) + 70 : 0;
-                    
-                    return (
-                      <div
-                        key={i}
-                        className={cn(
-                          "aspect-square p-2 rounded-lg border text-center text-sm",
-                          hasData && "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800",
-                          isToday && "border-[#0A66C2] bg-[#E8F0FE] dark:bg-[#0A66C2]/10",
-                          !hasData && "text-gray-300 dark:text-gray-700"
-                        )}
-                      >
-                        {day > 0 && day <= 30 && (
-                          <>
-                            <div className="text-gray-900 dark:text-white mb-1">{day}</div>
-                            {hasData && (
-                              <div className={cn(
-                                "w-2 h-2 rounded-full mx-auto",
-                                attendance > 90 && "bg-green-500",
-                                attendance > 75 && attendance <= 90 && "bg-orange-500",
-                                attendance <= 75 && "bg-red-500"
-                              )}></div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              <p className="text-gray-600 dark:text-gray-400 text-center py-8">
+                Calendar view with attendance data will be displayed here
+              </p>
             </Card>
           </div>
         </TabsContent>
@@ -598,56 +774,64 @@ export function Attendance() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {mockAttendanceHistory.map((record, index) => {
-                    const rate = (record.present / record.total) * 100;
-                    return (
-                      <TableRow key={index} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                        <TableCell className="text-gray-900 dark:text-white">
-                          {new Date(record.date).toLocaleDateString('en-US', { 
-                            month: 'short', 
-                            day: 'numeric', 
-                            year: 'numeric' 
-                          })}
-                        </TableCell>
-                        <TableCell className="text-gray-700 dark:text-gray-300">
-                          {record.class}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{record.section}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-green-600">{record.present}</span>
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-red-600">{record.absent}</span>
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-orange-600">{record.late}</span>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden max-w-[80px]">
-                              <div 
-                                className={cn(
-                                  "h-full",
-                                  rate > 90 ? 'bg-green-500' : 
-                                  rate > 75 ? 'bg-orange-500' : 
-                                  'bg-red-500'
-                                )}
-                                style={{ width: `${rate}%` }}
-                              ></div>
+                  {attendanceHistory.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center py-8 text-gray-500 dark:text-gray-400">
+                        No attendance records found
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    attendanceHistory.map((record, index) => {
+                      const rate = record.total > 0 ? (record.present / record.total) * 100 : 0;
+                      return (
+                        <TableRow key={index} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                          <TableCell className="text-gray-900 dark:text-white">
+                            {new Date(record.date).toLocaleDateString('en-US', { 
+                              month: 'short', 
+                              day: 'numeric', 
+                              year: 'numeric' 
+                            })}
+                          </TableCell>
+                          <TableCell className="text-gray-700 dark:text-gray-300">
+                            {record.class}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{record.section}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-green-600">{record.present}</span>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-red-600">{record.absent}</span>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-orange-600">{record.late}</span>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden max-w-[80px]">
+                                <div 
+                                  className={cn(
+                                    "h-full",
+                                    rate > 90 ? 'bg-green-500' : 
+                                    rate > 75 ? 'bg-orange-500' : 
+                                    'bg-red-500'
+                                  )}
+                                  style={{ width: `${Math.min(rate, 100)}%` }}
+                                ></div>
+                              </div>
+                              <span className="text-sm text-gray-700 dark:text-gray-300">
+                                {rate.toFixed(0)}%
+                              </span>
                             </div>
-                            <span className="text-sm text-gray-700 dark:text-gray-300">
-                              {rate.toFixed(0)}%
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="sm">View Details</Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button variant="ghost" size="sm">View Details</Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
                 </TableBody>
               </Table>
             </div>

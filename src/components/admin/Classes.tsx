@@ -46,6 +46,7 @@ import { toast } from 'sonner';
 import { adminService } from '../../services';
 import { AddClassRequest, UpdateClassRequest } from '../../types/class.types';
 import { ApiException, getUserFriendlyError } from '../../utils/errors';
+import { schoolStorage } from '../../utils/storage';
 
 interface Subject {
   id: string;
@@ -169,42 +170,164 @@ type ApiSubject = any;
 type ApiClass = any;
 
 function normalizeSection(section: ApiSection): Section {
+  if (!section) {
+    return {
+      id: `${Date.now()}`,
+      name: '',
+      capacity: 0,
+      enrolled: 0,
+      room: '',
+    };
+  }
+
+  // Handle section name - might be 'name' or 'sectionName'
+  const sectionName = section?.name || section?.sectionName || '';
+  
+  // Handle capacity - might be 'capacity' or 'maxCapacity'
+  const capacity = Number(section?.capacity) || Number(section?.maxCapacity) || 0;
+  
+  // Handle enrolled - might be 'enrolled', 'enrolledStudents', or 'currentStudents'
+  const enrolled = Number(section?.enrolled) || 
+                   Number(section?.enrolledStudents) || 
+                   Number(section?.currentStudents) || 
+                   0;
+  
+  // Handle room - might be 'room' or 'roomNumber'
+  const room = section?.room || section?.roomNumber || '';
+  
+  // Handle class teacher
+  const classTeacher = typeof section?.classTeacher === 'string' 
+    ? section.classTeacher 
+    : (section?.classTeacher?.name || section?.classTeacherName || '');
+  
+  const classTeacherId = section?.classTeacherId || section?.classTeacher?.id || section?.classTeacher?.uuid;
+
   return {
     id: section?.id || section?.uuid || crypto.randomUUID?.() || `${Date.now()}`,
-    name: typeof section?.name === 'string' ? section.name : String(section?.name?.name || section?.name || ''),
-    capacity: Number(section?.capacity) || 0,
-    enrolled: Number(section?.enrolled) || 0,
-    room: section?.room || '',
-    classTeacher: typeof section?.classTeacher === 'string' ? section.classTeacher : section?.classTeacher?.name,
-    classTeacherId: section?.classTeacherId,
+    name: typeof sectionName === 'string' ? sectionName : String(sectionName || ''),
+    capacity,
+    enrolled,
+    room,
+    classTeacher,
+    classTeacherId,
   };
 }
 
 function normalizeSubject(subject: ApiSubject): Subject {
+  if (!subject) {
+    return {
+      id: `${Date.now()}`,
+      name: '',
+      code: '',
+      teacher: '',
+    };
+  }
+
+  // Handle subject name - might be 'name' or 'subjectName'
+  const subjectName = subject?.name || subject?.subjectName || '';
+  
+  // Handle subject code - might be 'code' or 'subjectCode'
+  const subjectCode = subject?.code || subject?.subjectCode || '';
+  
+  // Handle teacher - might be object or string
+  const teacher = typeof subject?.teacher === 'string' 
+    ? subject.teacher 
+    : (subject?.teacher?.name || subject?.teacherName || '');
+  
+  const teacherId = subject?.teacherId || subject?.teacher?.id || subject?.teacher?.uuid;
+
   return {
     id: subject?.id || subject?.uuid || crypto.randomUUID?.() || `${Date.now()}`,
-    name: typeof subject?.name === 'string' ? subject.name : String(subject?.name?.name || subject?.name || ''),
-    code: subject?.code || '',
-    teacher: typeof subject?.teacher === 'string' ? subject.teacher : subject?.teacher?.name || '',
-    teacherId: subject?.teacherId,
+    name: typeof subjectName === 'string' ? subjectName : String(subjectName || ''),
+    code: subjectCode,
+    teacher,
+    teacherId,
   };
 }
 
 function normalizeClass(cls: ApiClass): ClassData {
-  const sections = Array.isArray(cls?.sections) ? cls.sections.map(normalizeSection) : [];
-  const subjects = Array.isArray(cls?.subjects) ? cls.subjects.map(normalizeSubject) : [];
+  if (!cls) {
+    console.warn('normalizeClass: Received null/undefined class data');
+    return {
+      id: `${Date.now()}`,
+      name: 'Unnamed Class',
+      grade: 0,
+      academicYear: '',
+      sections: [],
+      subjects: [],
+      totalStudents: 0,
+      totalCapacity: 0,
+    };
+  }
 
+  // Handle sections - check multiple possible structures
+  let sections: Section[] = [];
+  if (Array.isArray(cls?.sections)) {
+    sections = cls.sections.map(normalizeSection);
+  } else if (cls?.sections && typeof cls.sections === 'object') {
+    // If sections is an object with array inside
+    const sectionsArray = (cls.sections as any).data || (cls.sections as any).sections || [];
+    sections = Array.isArray(sectionsArray) ? sectionsArray.map(normalizeSection) : [];
+  }
+
+  // Handle subjects - check multiple possible structures
+  let subjects: Subject[] = [];
+  if (Array.isArray(cls?.subjects)) {
+    subjects = cls.subjects.map(normalizeSubject);
+  } else if (cls?.subjects && typeof cls.subjects === 'object') {
+    // If subjects is an object with array inside
+    const subjectsArray = (cls.subjects as any).data || (cls.subjects as any).subjects || [];
+    subjects = Array.isArray(subjectsArray) ? subjectsArray.map(normalizeSubject) : [];
+  }
+
+  // Calculate total capacity
   const totalCapacity = Number(cls?.totalCapacity) ||
     (sections.length ? sections.reduce((sum, s) => sum + (Number(s.capacity) || 0), 0) : 0);
 
+  // Handle class name - backend might return 'className' or 'name'
+  const className = cls?.className || cls?.name || '';
+  const classId = cls?.id || cls?.uuid || `${Date.now()}`;
+  const classGrade = Number(cls?.grade) || Number(cls?.gradeLevel) || 0;
+  
+  // Handle academic year - might be string, object with yearName, or nested
+  let academicYearValue = '';
+  if (typeof cls?.academicYear === 'string') {
+    academicYearValue = cls.academicYear;
+  } else if (cls?.academicYear && typeof cls.academicYear === 'object') {
+    // If academicYear is an object, extract yearName
+    academicYearValue = cls.academicYear.yearName || cls.academicYear.name || cls.academicYear.year || '';
+  } else if (cls?.academicYearName) {
+    academicYearValue = cls.academicYearName;
+  } else if (cls?.academicYear?.yearName) {
+    academicYearValue = cls.academicYear.yearName;
+  }
+  
+  const totalStudentsValue = Number(cls?.totalStudents) || Number(cls?.enrolledStudents) || 0;
+
+  if (import.meta.env.DEV) {
+    console.log('Normalize Class:', {
+      raw: cls,
+      normalized: {
+        id: classId,
+        name: className,
+        grade: classGrade,
+        academicYear: academicYearValue,
+        sectionsCount: sections.length,
+        subjectsCount: subjects.length,
+        totalStudents: totalStudentsValue,
+        totalCapacity,
+      },
+    });
+  }
+
   return {
-    id: cls?.id || cls?.uuid || `${Date.now()}`,
-    name: typeof cls?.name === 'string' ? cls.name : String(cls?.name?.name || cls?.name || ''),
-    grade: Number(cls?.grade) || 0,
-    academicYear: typeof cls?.academicYear === 'string' ? cls.academicYear : String(cls?.academicYear || ''),
+    id: classId,
+    name: typeof className === 'string' ? className : String(className || 'Unnamed Class'),
+    grade: classGrade,
+    academicYear: typeof academicYearValue === 'string' ? academicYearValue : String(academicYearValue || ''),
     sections,
     subjects,
-    totalStudents: Number(cls?.totalStudents) || 0,
+    totalStudents: totalStudentsValue,
     totalCapacity,
   };
 }
@@ -227,14 +350,17 @@ export function Classes() {
   const [className, setClassName] = useState('');
   const [gradeLevel, setGradeLevel] = useState('');
   const [academicYear, setAcademicYear] = useState('2024-2025');
+  const [academicYearId, setAcademicYearId] = useState<string>('');
+  const [academicYears, setAcademicYears] = useState<Array<{ id: string; yearName: string }>>([]);
   const [sections, setSections] = useState<Section[]>([
     { id: '1', name: 'A', capacity: 40, enrolled: 0, room: '' }
   ]);
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
 
-  // Fetch classes on mount
+  // Fetch classes and academic years on mount
   useEffect(() => {
     fetchClasses();
+    fetchAcademicYears();
   }, []);
 
   const fetchClasses = async () => {
@@ -242,9 +368,26 @@ export function Classes() {
     try {
       const response = await adminService.getClasses();
 
+      if (import.meta.env.DEV) {
+        console.log('Fetch Classes Response:', {
+          response,
+          classes: response?.classes,
+          classesCount: Array.isArray(response?.classes) ? response.classes.length : 0,
+          firstClass: Array.isArray(response?.classes) ? response.classes[0] : null,
+        });
+      }
+
       const classesData: ClassData[] = Array.isArray(response?.classes)
         ? response.classes.map(normalizeClass)
         : [];
+
+      if (import.meta.env.DEV) {
+        console.log('Normalized Classes:', {
+          count: classesData.length,
+          classes: classesData,
+          firstClassNormalized: classesData[0],
+        });
+      }
 
       setClasses(classesData);
     } catch (error: any) {
@@ -253,6 +396,27 @@ export function Classes() {
       setClasses([]);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchAcademicYears = async () => {
+    try {
+      const response = await adminService.getAcademicYears();
+      const years = response.academicYears || [];
+      
+      setAcademicYears(years.map(ay => ({ id: ay.id || ay.uuid || '', yearName: ay.yearName })));
+      
+      // Auto-select current year or first year
+      if (years.length > 0) {
+        const currentYear = years.find(ay => ay.isCurrent) || years[0];
+        if (currentYear) {
+          setAcademicYear(currentYear.yearName);
+          setAcademicYearId(currentYear.id || currentYear.uuid || '');
+        }
+      }
+    } catch (error: any) {
+      console.error('Error fetching academic years:', error);
+      // Don't show error toast, just log it
     }
   };
 
@@ -284,19 +448,41 @@ export function Classes() {
     try {
       const response = await adminService.getClassById(classData.id);
 
+      if (import.meta.env.DEV) {
+        console.log('View Details Response:', {
+          classId: classData.id,
+          response,
+          data: response.data,
+        });
+      }
+
       if (response.data) {
         const classDetails = normalizeClass(response.data);
+
+        if (import.meta.env.DEV) {
+          console.log('View Details Normalized:', {
+            classDetails,
+            name: classDetails.name,
+            sections: classDetails.sections,
+            subjects: classDetails.subjects,
+          });
+        }
 
         setSelectedClass(classDetails);
         setShowDetailDialog(true);
       } else {
-        setSelectedClass(normalizeClass(classData));
+        // Fallback to cached data
+        const normalized = normalizeClass(classData);
+        setSelectedClass(normalized);
         setShowDetailDialog(true);
       }
     } catch (error: any) {
       console.error('Error fetching class details:', error);
       toast.error('Failed to load class details. Showing cached data.');
-      setSelectedClass(classData);
+      
+      // Use cached data as fallback
+      const normalized = normalizeClass(classData);
+      setSelectedClass(normalized);
       setShowDetailDialog(true);
     }
   };
@@ -313,19 +499,53 @@ export function Classes() {
     try {
       const response = await adminService.getClassById(classData.id);
 
+      if (import.meta.env.DEV) {
+        console.log('Edit Class Response:', {
+          classId: classData.id,
+          response,
+          data: response.data,
+        });
+      }
+
       if (response.data) {
         const classDetails = normalizeClass(response.data);
+
+        if (import.meta.env.DEV) {
+          console.log('Edit Class Normalized:', {
+            classDetails,
+            name: classDetails.name,
+            grade: classDetails.grade,
+            academicYear: classDetails.academicYear,
+            sections: classDetails.sections,
+            subjects: classDetails.subjects,
+          });
+        }
 
         setEditingClassId(classDetails.id);
         setIsEditMode(true);
         setClassName(classDetails.name);
         setGradeLevel(classDetails.grade.toString());
         setAcademicYear(classDetails.academicYear);
-        setSections(classDetails.sections.map(s => ({ ...s })));
-        setSelectedSubjects(classDetails.subjects.map(s => s.id));
+        
+        // Set sections with proper structure
+        const normalizedSections = classDetails.sections.map(s => ({
+          id: s.id,
+          name: s.name,
+          capacity: s.capacity,
+          enrolled: s.enrolled || 0,
+          room: s.room || '',
+          classTeacher: s.classTeacher,
+          classTeacherId: s.classTeacherId,
+        }));
+        setSections(normalizedSections.length > 0 ? normalizedSections : [{ id: '1', name: 'A', capacity: 40, enrolled: 0, room: '' }]);
+        
+        // Set selected subjects
+        setSelectedSubjects(classDetails.subjects.map(s => s.id).filter(id => id));
+        
         setActiveTab('overview');
         setShowAddDialog(true);
       } else {
+        // Fallback to cached data
         const normalized = normalizeClass(classData);
         setEditingClassId(normalized.id);
         setIsEditMode(true);
@@ -333,20 +553,23 @@ export function Classes() {
         setGradeLevel(normalized.grade.toString());
         setAcademicYear(normalized.academicYear);
         setSections(normalized.sections.map(s => ({ ...s })));
-        setSelectedSubjects(normalized.subjects.map(s => s.id));
+        setSelectedSubjects(normalized.subjects.map(s => s.id).filter(id => id));
         setActiveTab('overview');
         setShowAddDialog(true);
       }
     } catch (error: any) {
       console.error('Error fetching class for edit:', error);
       toast.error('Failed to load class data. Using cached data.');
-      setEditingClassId(classData.id);
+      
+      // Use cached data as fallback
+      const normalized = normalizeClass(classData);
+      setEditingClassId(normalized.id);
       setIsEditMode(true);
-      setClassName(classData.name);
-      setGradeLevel(classData.grade.toString());
-      setAcademicYear(classData.academicYear);
-      setSections(classData.sections.map(s => ({ ...s })));
-      setSelectedSubjects(classData.subjects.map(s => s.id));
+      setClassName(normalized.name);
+      setGradeLevel(normalized.grade.toString());
+      setAcademicYear(normalized.academicYear);
+      setSections(normalized.sections.map(s => ({ ...s })));
+      setSelectedSubjects(normalized.subjects.map(s => s.id).filter(id => id));
       setActiveTab('overview');
       setShowAddDialog(true);
     }
@@ -429,9 +652,11 @@ export function Classes() {
       setIsSubmitting(true);
       try {
         const requestData: UpdateClassRequest = {
-          name: className.trim(),
-          grade: parseInt(gradeLevel),
-          academicYear: academicYear,
+          className: className.trim(), // Backend expects 'className' not 'name'
+          grade: parseInt(gradeLevel) || undefined,
+          academicYear: academicYear.trim(), // REQUIRED - Backend expects this field
+          // Also include academicYearId if available (optional)
+          ...(academicYearId && { academicYearId: academicYearId }),
           sections: sections.map(section => ({
             name: section.name.trim(),
             capacity: section.capacity,
@@ -497,11 +722,63 @@ export function Classes() {
     // Add new class - Call API
     setIsSubmitting(true);
     try {
+      // Get schoolId from storage
+      const schoolId = schoolStorage.getSchoolId();
+      if (!schoolId) {
+        toast.error('School ID not found', {
+          description: 'Please login again or select a school.',
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Check if academic year exists, if not create it
+      let finalAcademicYearId = academicYearId;
+      
+      if (!finalAcademicYearId && academicYear.trim()) {
+        // Try to find academic year by name
+        const foundYear = academicYears.find(ay => ay.yearName === academicYear.trim());
+        if (foundYear) {
+          finalAcademicYearId = foundYear.id;
+        } else {
+          // Academic year doesn't exist, create it
+          try {
+            const currentDate = new Date();
+            const year = currentDate.getFullYear();
+            const startDate = `${year}-04-01`; // Academic year typically starts in April
+            const endDate = `${year + 1}-03-31`; // Ends in March next year
+            
+            const createYearResponse = await adminService.createAcademicYear({
+              yearName: academicYear.trim(),
+              startDate: startDate,
+              endDate: endDate,
+              isCurrent: true,
+            });
+            
+            if (createYearResponse.data) {
+              finalAcademicYearId = createYearResponse.data.id || createYearResponse.data.uuid || '';
+              // Refresh academic years list
+              await fetchAcademicYears();
+              toast.success(`Academic year "${academicYear}" created successfully`);
+            }
+          } catch (createError: any) {
+            console.error('Error creating academic year:', createError);
+            toast.error('Failed to create academic year. Please create it manually first.');
+            setIsSubmitting(false);
+            return;
+          }
+        }
+      }
+
       // Prepare request data
+      // Backend expects: className, academicYear (required), academicYearId (optional)
       const requestData: AddClassRequest = {
-        name: className.trim(),
-        grade: parseInt(gradeLevel),
-        academicYear: academicYear,
+        className: className.trim(), // Backend expects 'className' not 'name'
+        grade: parseInt(gradeLevel) || undefined,
+        academicYear: academicYear.trim(), // REQUIRED - Backend expects this field
+        // Also include academicYearId if available (optional but helpful)
+        ...(finalAcademicYearId && { academicYearId: finalAcademicYearId }),
+        schoolId: schoolId, // Add schoolId to payload
         sections: sections.map(section => ({
           name: section.name.trim(),
           capacity: section.capacity,
@@ -512,7 +789,13 @@ export function Classes() {
       };
 
       if (import.meta.env.DEV) {
-        console.log('Add Class Request:', requestData);
+        console.log('Add Class Request:', {
+          requestData,
+          schoolId,
+          headers: {
+            'X-School-UUID': schoolId,
+          },
+        });
       }
 
       // Call API
@@ -693,7 +976,9 @@ export function Classes() {
                           <div>
                             <p className="text-sm text-gray-900 dark:text-white">{classData.name || 'Untitled'}</p>
                             <p className="text-xs text-gray-500 dark:text-gray-400">
-                              Academic Year: {classData.academicYear}
+                              Academic Year: {typeof classData.academicYear === 'string' 
+                                ? classData.academicYear 
+                                : (classData.academicYear?.yearName || classData.academicYear?.name || 'N/A')}
                             </p>
                           </div>
                         </TableCell>
@@ -906,9 +1191,14 @@ export function Classes() {
               </TabsContent>
 
               <TabsContent value="subjects" className="mt-4 h-full flex flex-col overflow-hidden">
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 flex-shrink-0">
-                  Select subjects to be taught in this class
-                </p>
+                <div className="flex items-center justify-between mb-4 flex-shrink-0">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Select subjects to be taught in this class
+                  </p>
+                  <Badge variant="outline" className="text-sm">
+                    {selectedSubjects.length} {selectedSubjects.length === 1 ? 'Subject' : 'Subjects'} Selected
+                  </Badge>
+                </div>
 
                 <ScrollArea className="flex-1 min-h-0">
                   <div className="grid grid-cols-2 gap-4 pr-4 pb-4">
@@ -1060,39 +1350,41 @@ export function Classes() {
 
                 {/* Subjects Detail */}
                 <div>
-                  <h3 className="text-lg text-gray-900 dark:text-white mb-3">Subject Mapping</h3>
-                  <div className="border rounded-lg overflow-hidden">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-gray-50 dark:bg-gray-800">
-                          <TableHead>Subject</TableHead>
-                          <TableHead>Code</TableHead>
-                          <TableHead>Assigned Teacher</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {selectedClass.subjects.map(subject => (
-                          <TableRow key={subject.id}>
-                            <TableCell className="text-gray-900 dark:text-white">
-                              {subject.name}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="outline">{subject.code}</Badge>
-                            </TableCell>
-                            <TableCell className="text-gray-700 dark:text-gray-300">
-                              {subject.teacher || 'Not assigned'}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <Button variant="ghost" size="sm">
-                                Assign Teacher
-                              </Button>
-                            </TableCell>
+                  <h3 className="text-lg text-gray-900 dark:text-white mb-3">
+                    Subject Mapping ({selectedClass.subjects.length} {selectedClass.subjects.length === 1 ? 'Subject' : 'Subjects'})
+                  </h3>
+                  {selectedClass.subjects.length > 0 ? (
+                    <div className="border rounded-lg overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-gray-50 dark:bg-gray-800">
+                            <TableHead>Subject</TableHead>
+                            <TableHead>Code</TableHead>
+                            <TableHead>Assigned Teacher</TableHead>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                        </TableHeader>
+                        <TableBody>
+                          {selectedClass.subjects.map(subject => (
+                            <TableRow key={subject.id}>
+                              <TableCell className="text-gray-900 dark:text-white">
+                                {subject.name || 'Unnamed Subject'}
+                              </TableCell>
+                              <TableCell className="text-gray-700 dark:text-gray-300">
+                                {subject.code || '-'}
+                              </TableCell>
+                              <TableCell className="text-gray-700 dark:text-gray-300">
+                                {subject.teacher || 'Not Assigned'}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <Card className="p-6 text-center">
+                      <p className="text-gray-500 dark:text-gray-400">No subjects assigned to this class yet.</p>
+                    </Card>
+                  )}
                 </div>
               </div>
             </ScrollArea>

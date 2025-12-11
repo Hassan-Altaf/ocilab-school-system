@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BookOpen, Users, Calendar, Clock, Award, TrendingUp } from 'lucide-react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Progress } from '../ui/progress';
+import { teacherService } from '../../services';
+import { toast } from 'sonner@2.0.3';
+import { ApiException, getUserFriendlyError } from '../../utils/errors';
 
 interface ClassData {
   id: number;
@@ -82,11 +85,40 @@ const upcomingTopics = [
 ];
 
 export function TeacherClasses() {
-  const [selectedClass, setSelectedClass] = useState<ClassData | null>(null);
+  const [classes, setClasses] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedClass, setSelectedClass] = useState<any | null>(null);
 
-  const totalStudents = mockClasses.reduce((sum, cls) => sum + cls.students, 0);
-  const avgAttendance = Math.round(mockClasses.reduce((sum, cls) => sum + cls.avgAttendance, 0) / mockClasses.length);
-  const avgGrade = Math.round(mockClasses.reduce((sum, cls) => sum + cls.avgGrade, 0) / mockClasses.length);
+  useEffect(() => {
+    loadClasses();
+  }, []);
+
+  const loadClasses = async () => {
+    try {
+      setLoading(true);
+      const response = await teacherService.getAssignedClasses();
+      setClasses(response.data?.classes || []);
+    } catch (error: any) {
+      console.error('Failed to load classes:', error);
+      toast.error(error instanceof ApiException ? getUserFriendlyError(error) : 'Failed to load classes');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="animate-pulse">
+          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-64 mb-2"></div>
+        </div>
+      </div>
+    );
+  }
+
+  const totalStudents = 0; // Will be calculated from actual data
+  const avgAttendance = 0;
+  const avgGrade = 0;
 
   return (
     <div className="space-y-6">
@@ -104,7 +136,7 @@ export function TeacherClasses() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-blue-700 dark:text-blue-300 mb-1">Total Classes</p>
-              <p className="text-3xl text-blue-900 dark:text-blue-100">{mockClasses.length}</p>
+              <p className="text-3xl text-blue-900 dark:text-blue-100">{classes.length}</p>
             </div>
             <div className="w-12 h-12 rounded-lg bg-blue-600 flex items-center justify-center">
               <BookOpen className="w-6 h-6 text-white" />
@@ -155,72 +187,51 @@ export function TeacherClasses() {
           <Card className="p-6 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
             <h2 className="text-xl text-gray-900 dark:text-white mb-4">All Classes</h2>
             <div className="space-y-3">
-              {mockClasses.map((classData) => (
-                <Card
-                  key={classData.id}
-                  className="p-4 border-2 border-gray-200 dark:border-gray-700 hover:border-blue-400 dark:hover:border-blue-600 cursor-pointer transition-all"
-                  onClick={() => setSelectedClass(classData)}
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-start gap-3">
-                      <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white flex-shrink-0">
-                        <BookOpen className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <h3 className="text-lg text-gray-900 dark:text-white mb-1">
-                          {classData.name} - {classData.subject}
-                        </h3>
-                        <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400">
-                          <span className="flex items-center gap-1">
-                            <Users className="w-4 h-4" />
-                            {classData.students} students
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Calendar className="w-4 h-4" />
-                            {classData.room}
-                          </span>
+              {classes.length > 0 ? (
+                classes.map((classData) => (
+                  <Card
+                    key={classData.classId}
+                    className="p-4 border-2 border-gray-200 dark:border-gray-700 hover:border-blue-400 dark:hover:border-blue-600 cursor-pointer transition-all"
+                    onClick={() => setSelectedClass(classData)}
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-start gap-3">
+                        <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white flex-shrink-0">
+                          <BookOpen className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg text-gray-900 dark:text-white mb-1">
+                            {classData.className}
+                          </h3>
+                          <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400">
+                            <span className="flex items-center gap-1">
+                              <Users className="w-4 h-4" />
+                              {classData.sections?.length || 0} sections
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Calendar className="w-4 h-4" />
+                              {classData.subjects?.length || 0} subjects
+                            </span>
+                          </div>
                         </div>
                       </div>
+                      <Button size="sm" variant="outline">View Details</Button>
                     </div>
-                    <Button size="sm" variant="outline">View Details</Button>
-                  </div>
 
-                  <div className="grid grid-cols-3 gap-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-                    <div>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Attendance</p>
-                      <div className="flex items-center gap-2">
-                        <Progress value={classData.avgAttendance} className="h-2" />
-                        <span className="text-sm text-gray-900 dark:text-white">{classData.avgAttendance}%</span>
+                    {classData.sections && classData.sections.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {classData.sections.map((sec: any) => (
+                          <Badge key={sec.sectionId} variant="outline" className="text-xs">
+                            {sec.sectionName}
+                          </Badge>
+                        ))}
                       </div>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Avg Grade</p>
-                      <div className="flex items-center gap-2">
-                        <Progress value={classData.avgGrade} className="h-2" />
-                        <span className="text-sm text-gray-900 dark:text-white">{classData.avgGrade}%</span>
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Progress</p>
-                      <div className="flex items-center gap-2">
-                        <Progress value={(classData.completedTopics / classData.totalTopics) * 100} className="h-2" />
-                        <span className="text-sm text-gray-900 dark:text-white">
-                          {classData.completedTopics}/{classData.totalTopics}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    {classData.schedule.map((time, idx) => (
-                      <Badge key={idx} variant="outline" className="text-xs">
-                        <Clock className="w-3 h-3 mr-1" />
-                        {time}
-                      </Badge>
-                    ))}
-                  </div>
-                </Card>
-              ))}
+                    )}
+                  </Card>
+                ))
+              ) : (
+                <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">No classes assigned</p>
+              )}
             </div>
           </Card>
         </div>

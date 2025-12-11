@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, FileText, Calendar, Users, CheckCircle, Clock, Eye, Download } from 'lucide-react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
@@ -11,136 +11,113 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Progress } from '../ui/progress';
 import { toast } from 'sonner@2.0.3';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-
-interface Assignment {
-  id: number;
-  title: string;
-  class: string;
-  subject: string;
-  dueDate: string;
-  totalMarks: number;
-  submitted: number;
-  totalStudents: number;
-  graded: number;
-  status: 'active' | 'completed' | 'overdue';
-  description: string;
-  createdDate: string;
-}
-
-const mockAssignments: Assignment[] = [
-  {
-    id: 1,
-    title: 'Quadratic Equations Worksheet',
-    class: 'Grade 10A',
-    subject: 'Mathematics',
-    dueDate: '2024-11-08',
-    totalMarks: 20,
-    submitted: 28,
-    totalStudents: 32,
-    graded: 15,
-    status: 'active',
-    description: 'Solve problems 1-20 from chapter 5',
-    createdDate: '2024-11-01'
-  },
-  {
-    id: 2,
-    title: 'Trigonometry Practice',
-    class: 'Grade 9B',
-    subject: 'Mathematics',
-    dueDate: '2024-11-10',
-    totalMarks: 25,
-    submitted: 25,
-    totalStudents: 30,
-    graded: 20,
-    status: 'active',
-    description: 'Complete trigonometric ratios exercises',
-    createdDate: '2024-11-02'
-  },
-  {
-    id: 3,
-    title: 'Calculus Problem Set',
-    class: 'Grade 11A',
-    subject: 'Mathematics',
-    dueDate: '2024-11-12',
-    totalMarks: 30,
-    submitted: 22,
-    totalStudents: 28,
-    graded: 10,
-    status: 'active',
-    description: 'Derivatives and integration problems',
-    createdDate: '2024-11-03'
-  },
-  {
-    id: 4,
-    title: 'Linear Equations Test',
-    class: 'Grade 8A',
-    subject: 'Mathematics',
-    dueDate: '2024-11-05',
-    totalMarks: 15,
-    submitted: 35,
-    totalStudents: 35,
-    graded: 35,
-    status: 'completed',
-    description: 'Linear equations and word problems',
-    createdDate: '2024-10-28'
-  },
-];
+import { teacherService } from '../../services';
+import type { Assignment } from '../../services/teacher.service';
+import { ApiException, getUserFriendlyError } from '../../utils/errors';
 
 export function TeacherAssignments() {
-  const [assignments, setAssignments] = useState<Assignment[]>(mockAssignments);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [statistics, setStatistics] = useState<any>(null);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const [newAssignment, setNewAssignment] = useState({
+    classId: '',
+    sectionId: '',
+    subjectId: '',
     title: '',
-    class: '',
     dueDate: '',
     totalMarks: '',
     description: ''
   });
+  const [classes, setClasses] = useState<any[]>([]);
 
-  const stats = {
-    total: assignments.length,
-    active: assignments.filter(a => a.status === 'active').length,
-    completed: assignments.filter(a => a.status === 'completed').length,
-    pendingGrading: assignments.reduce((sum, a) => sum + (a.submitted - a.graded), 0)
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [assignmentsRes, statsRes, classesRes] = await Promise.all([
+        teacherService.getAssignments({ page: 1, limit: 50 }),
+        teacherService.getAssignmentStatistics(),
+        teacherService.getAssignedClasses()
+      ]);
+      setAssignments(assignmentsRes.data?.assignments || []);
+      setStatistics(statsRes.data);
+      setClasses(classesRes.data?.classes || []);
+    } catch (error: any) {
+      console.error('Failed to load assignments:', error);
+      toast.error(error instanceof ApiException ? getUserFriendlyError(error) : 'Failed to load assignments');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleCreateAssignment = () => {
-    if (!newAssignment.title || !newAssignment.class || !newAssignment.dueDate) {
+  const handleCreateAssignment = async () => {
+    if (!newAssignment.title || !newAssignment.classId || !newAssignment.subjectId || !newAssignment.totalMarks) {
       toast.error('Please fill all required fields');
       return;
     }
 
-    const assignment: Assignment = {
-      id: assignments.length + 1,
-      title: newAssignment.title,
-      class: newAssignment.class,
-      subject: 'Mathematics',
-      dueDate: newAssignment.dueDate,
-      totalMarks: parseInt(newAssignment.totalMarks) || 20,
-      submitted: 0,
-      totalStudents: 30,
-      graded: 0,
-      status: 'active',
-      description: newAssignment.description,
-      createdDate: new Date().toISOString().split('T')[0]
-    };
-
-    setAssignments([assignment, ...assignments]);
-    setIsCreateDialogOpen(false);
-    setNewAssignment({ title: '', class: '', dueDate: '', totalMarks: '', description: '' });
-    toast.success('Assignment created successfully!');
-  };
-
-  const getStatusColor = (status: Assignment['status']) => {
-    switch (status) {
-      case 'active': return 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/20 dark:text-blue-400';
-      case 'completed': return 'bg-green-100 text-green-700 border-green-300 dark:bg-green-900/20 dark:text-green-400';
-      case 'overdue': return 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/20 dark:text-red-400';
+    try {
+      setIsCreating(true);
+      const dueDate = newAssignment.dueDate ? new Date(newAssignment.dueDate).toISOString() : undefined;
+      await teacherService.createAssignment({
+        classId: newAssignment.classId,
+        sectionId: newAssignment.sectionId || undefined,
+        subjectId: newAssignment.subjectId,
+        title: newAssignment.title,
+        description: newAssignment.description || undefined,
+        dueDate,
+        totalMarks: parseFloat(newAssignment.totalMarks),
+      });
+      setIsCreateDialogOpen(false);
+      setNewAssignment({ classId: '', sectionId: '', subjectId: '', title: '', dueDate: '', totalMarks: '', description: '' });
+      toast.success('Assignment created successfully!');
+      loadData();
+    } catch (error: any) {
+      console.error('Failed to create assignment:', error);
+      toast.error(error instanceof ApiException ? getUserFriendlyError(error) : 'Failed to create assignment');
+    } finally {
+      setIsCreating(false);
     }
   };
 
-  const activeAssignments = assignments.filter(a => a.status === 'active');
-  const completedAssignments = assignments.filter(a => a.status === 'completed');
+  const stats = {
+    total: statistics?.totalAssignments || assignments.length,
+    active: assignments.filter(a => new Date(a.dueDate) >= new Date()).length,
+    completed: assignments.filter(a => new Date(a.dueDate) < new Date()).length,
+    pendingGrading: statistics?.pendingGrading || 0
+  };
+
+  const getStatusColor = (assignment: Assignment) => {
+    const dueDate = new Date(assignment.dueDate);
+    const now = new Date();
+    if (dueDate < now) return 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/20 dark:text-red-400';
+    return 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/20 dark:text-blue-400';
+  };
+
+  const getStatus = (assignment: Assignment) => {
+    const dueDate = new Date(assignment.dueDate);
+    const now = new Date();
+    if (dueDate < now) return 'overdue';
+    return 'active';
+  };
+
+  const activeAssignments = assignments.filter(a => getStatus(a) === 'active');
+  const completedAssignments = assignments.filter(a => getStatus(a) === 'overdue');
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="animate-pulse">
+          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-64 mb-2"></div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -180,16 +157,35 @@ export function TeacherAssignments() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="class">Select Class *</Label>
-                  <Select value={newAssignment.class} onValueChange={(value) => setNewAssignment({ ...newAssignment, class: value })}>
+                  <Label htmlFor="classId">Select Class *</Label>
+                  <Select value={newAssignment.classId} onValueChange={(value) => {
+                    const selectedClass = classes.find(c => c.classId === value);
+                    setNewAssignment({ ...newAssignment, classId: value, subjectId: selectedClass?.subjects?.[0]?.subjectId || '' });
+                  }}>
                     <SelectTrigger className="h-11">
                       <SelectValue placeholder="Choose a class" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Grade 10A">Grade 10A - Mathematics</SelectItem>
-                      <SelectItem value="Grade 9B">Grade 9B - Mathematics</SelectItem>
-                      <SelectItem value="Grade 11A">Grade 11A - Mathematics</SelectItem>
-                      <SelectItem value="Grade 8A">Grade 8A - Mathematics</SelectItem>
+                      {classes.map(cls => (
+                        <SelectItem key={cls.classId} value={cls.classId}>
+                          {cls.className}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="subjectId">Subject *</Label>
+                  <Select value={newAssignment.subjectId} onValueChange={(value) => setNewAssignment({ ...newAssignment, subjectId: value })}>
+                    <SelectTrigger className="h-11">
+                      <SelectValue placeholder="Choose a subject" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {classes.find(c => c.classId === newAssignment.classId)?.subjects?.map((subj: any) => (
+                        <SelectItem key={subj.subjectId} value={subj.subjectId}>
+                          {subj.subjectName}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -232,10 +228,10 @@ export function TeacherAssignments() {
               </div>
 
               <div className="flex gap-3 pt-4">
-                <Button onClick={handleCreateAssignment} className="flex-1 bg-blue-600 hover:bg-blue-700">
-                  Create Assignment
+                <Button onClick={handleCreateAssignment} disabled={isCreating} className="flex-1 bg-blue-600 hover:bg-blue-700">
+                  {isCreating ? 'Creating...' : 'Create Assignment'}
                 </Button>
-                <Button onClick={() => setIsCreateDialogOpen(false)} variant="outline" className="flex-1">
+                <Button onClick={() => setIsCreateDialogOpen(false)} variant="outline" className="flex-1" disabled={isCreating}>
                   Cancel
                 </Button>
               </div>
@@ -330,7 +326,7 @@ export function TeacherAssignments() {
                           <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400">
                             <span className="flex items-center gap-1">
                               <Users className="w-4 h-4" />
-                              {assignment.class}
+                              {assignment.className || assignment.class} {assignment.sectionName ? `- ${assignment.sectionName}` : ''}
                             </span>
                             <span className="flex items-center gap-1">
                               <Calendar className="w-4 h-4" />
@@ -339,20 +335,22 @@ export function TeacherAssignments() {
                           </div>
                         </div>
                       </div>
-                      <Badge variant="outline" className={getStatusColor(assignment.status)}>
-                        {assignment.status.charAt(0).toUpperCase() + assignment.status.slice(1)}
+                      <Badge variant="outline" className={getStatusColor(assignment)}>
+                        {getStatus(assignment).charAt(0).toUpperCase() + getStatus(assignment).slice(1)}
                       </Badge>
                     </div>
 
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{assignment.description}</p>
+                    {assignment.description && (
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{assignment.description}</p>
+                    )}
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                       <div>
                         <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Submission Progress</p>
                         <div className="flex items-center gap-2">
-                          <Progress value={(assignment.submitted / assignment.totalStudents) * 100} className="flex-1" />
+                          <Progress value={assignment.totalStudents ? ((assignment.submittedCount || 0) / assignment.totalStudents) * 100 : 0} className="flex-1" />
                           <span className="text-sm text-gray-900 dark:text-white">
-                            {assignment.submitted}/{assignment.totalStudents}
+                            {assignment.submittedCount || 0}/{assignment.totalStudents || 0}
                           </span>
                         </div>
                       </div>
@@ -360,9 +358,9 @@ export function TeacherAssignments() {
                       <div>
                         <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Grading Progress</p>
                         <div className="flex items-center gap-2">
-                          <Progress value={(assignment.graded / assignment.submitted) * 100} className="flex-1" />
+                          <Progress value={assignment.submittedCount ? ((assignment.gradedCount || 0) / assignment.submittedCount) * 100 : 0} className="flex-1" />
                           <span className="text-sm text-gray-900 dark:text-white">
-                            {assignment.graded}/{assignment.submitted}
+                            {assignment.gradedCount || 0}/{assignment.submittedCount || 0}
                           </span>
                         </div>
                       </div>
@@ -374,11 +372,27 @@ export function TeacherAssignments() {
                     </div>
 
                     <div className="flex gap-2">
-                      <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
+                      <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white" onClick={() => {
+                        // Navigate to assignment details
+                        window.location.href = `/teacher/assignments/${assignment.id}`;
+                      }}>
                         <Eye className="w-4 h-4 mr-2" />
                         View Submissions
                       </Button>
-                      <Button size="sm" variant="outline">
+                      <Button size="sm" variant="outline" onClick={async () => {
+                        try {
+                          const blob = await teacherService.downloadAllSubmissions(assignment.id);
+                          const url = window.URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `assignments-${assignment.id}.zip`;
+                          a.click();
+                          window.URL.revokeObjectURL(url);
+                          toast.success('Download started');
+                        } catch (error: any) {
+                          toast.error('Failed to download submissions');
+                        }
+                      }}>
                         <Download className="w-4 h-4 mr-2" />
                         Download All
                       </Button>

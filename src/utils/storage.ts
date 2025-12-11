@@ -136,6 +136,36 @@ export const userStorage = {
 };
 
 /**
+ * School Storage (stores active school UUID for headers)
+ */
+const SCHOOL_UUID_KEY = 'school_uuid';
+
+export const schoolStorage = {
+  setSchoolId: (schoolId: string): void => {
+    try {
+      sessionStorage.setItem(SCHOOL_UUID_KEY, schoolId);
+    } catch (error) {
+      console.error('Failed to save school id:', error);
+    }
+  },
+  getSchoolId: (): string | null => {
+    try {
+      return sessionStorage.getItem(SCHOOL_UUID_KEY);
+    } catch (error) {
+      console.error('Failed to get school id:', error);
+      return null;
+    }
+  },
+  clearSchoolId: (): void => {
+    try {
+      sessionStorage.removeItem(SCHOOL_UUID_KEY);
+    } catch (error) {
+      console.error('Failed to clear school id:', error);
+    }
+  },
+};
+
+/**
  * Clear all auth data
  */
 export const clearAuthData = (): void => {

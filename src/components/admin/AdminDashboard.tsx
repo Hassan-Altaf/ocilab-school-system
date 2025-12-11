@@ -73,16 +73,32 @@ export function AdminDashboard() {
         setStats(data);
       } catch (error: any) {
         setHasError(true);
-        let errorMessage = 'Failed to load dashboard stats. Showing default values.';
+        let errorMessage = 'Failed to load dashboard stats.';
+        
         if (error instanceof ApiException) {
-          errorMessage = getUserFriendlyError(error);
+          // Check for CORS errors - don't show error toast, just log it
+          if (error.code === 'CORS_ERROR') {
+            console.error('CORS Error on dashboard API:', {
+              message: error.message,
+              details: error.details,
+              note: 'Backend needs to allow X-School-UUID header in CORS configuration',
+            });
+            errorMessage = 'Dashboard data unavailable. Please check backend CORS configuration.';
+          } else {
+            errorMessage = getUserFriendlyError(error);
+          }
         } else if (error?.message) {
           errorMessage = error.message;
         }
-        toast.error(errorMessage);
+        
+        // Only show toast for non-CORS errors
+        if (!(error instanceof ApiException && error.code === 'CORS_ERROR')) {
+          toast.error(errorMessage);
+        }
+        
         console.error('Dashboard stats error:', error);
         
-        // Set default/fallback stats so dashboard still renders
+        // Set default/fallback stats so dashboard still renders (don't redirect)
         setStats({
           students: { total: 0, change: 0, changeType: 'positive' },
           teachers: { total: 0, change: 0, changeType: 'positive' },
