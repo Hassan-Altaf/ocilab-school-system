@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { AdminDashboard } from './components/admin/AdminDashboard';
+import { AdminProfile } from './components/admin/AdminProfile';
 import { Students } from './components/admin/Students';
 import { Teachers } from './components/admin/Teachers';
 import { Classes } from './components/admin/Classes';
@@ -35,16 +37,156 @@ import { StudentMessages } from './components/student/StudentMessages';
 import { StudentProfile } from './components/student/StudentProfile';
 import { Toaster } from './components/ui/sonner';
 import { AuthSystem, UserRole } from './components/auth/AuthSystem';
+import { authService } from './services';
+import { schoolStorage } from './utils/storage';
+import { toast } from 'sonner';
 
 export default function App() {
+  const { schoolId } = useParams<{ schoolId: string }>();
+  const navigate = useNavigate();
+  
   // Set to true to bypass authentication for development
   const BYPASS_AUTH = false;
   
-  const [isAuthenticated, setIsAuthenticated] = useState(BYPASS_AUTH);
-  const [userType, setUserType] = useState<'admin' | 'teacher' | 'student'>('admin');
-  const [currentPage, setCurrentPage] = useState('dashboard');
+  // Initialize authentication state - start with checking storage to prevent flash
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    if (BYPASS_AUTH) return true;
+    // Check if user is authenticated from storage immediately
+    const authenticated = authService.isAuthenticated();
+    return authenticated;
+  });
+  
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true); // Add loading state
+  
+  const [userType, setUserType] = useState<'admin' | 'teacher' | 'student'>(() => {
+    // Try to restore from storage first
+    const storedUserType = sessionStorage.getItem('app_user_type') as 'admin' | 'teacher' | 'student' | null;
+    if (storedUserType && ['admin', 'teacher', 'student'].includes(storedUserType)) {
+      return storedUserType;
+    }
+    
+    // Fallback to user data from auth service
+    const user = authService.getCurrentUser();
+    if (user?.role) {
+      const role = user.role.toLowerCase();
+      if (role === 'super_admin' || role === 'school_admin' || role === 'admin') {
+        return 'admin';
+      } else if (role === 'teacher') {
+        return 'teacher';
+      } else if (role === 'student') {
+        return 'student';
+      }
+    }
+    return 'admin';
+  });
+  
+  const [currentPage, setCurrentPage] = useState(() => {
+    // Restore current page from storage on reload
+    const storedPage = sessionStorage.getItem('app_current_page');
+    if (storedPage) {
+      return storedPage;
+    }
+    return 'dashboard';
+  });
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Check authentication on mount and when storage changes
+  useEffect(() => {
+    if (!BYPASS_AUTH) {
+      const checkAuth = () => {
+        const authenticated = authService.isAuthenticated();
+        
+        // If not authenticated and on protected route, redirect to login
+        if (!authenticated) {
+          setIsAuthenticated(false);
+          setIsCheckingAuth(false);
+          // Only redirect if we're on a protected route (not on login page)
+          const currentPath = window.location.pathname;
+          if (!currentPath.includes('/admin/login') && !currentPath.includes('/admin/school-login')) {
+            navigate('/admin/login');
+          }
+          return;
+        }
+        
+        // User is authenticated
+        setIsAuthenticated(true);
+        setIsCheckingAuth(false);
+        
+        // Update user type if authenticated
+        const user = authService.getCurrentUser();
+        if (user?.role) {
+          const role = user.role.toLowerCase();
+          let newUserType: 'admin' | 'teacher' | 'student' = 'admin';
+          if (role === 'super_admin' || role === 'school_admin' || role === 'admin') {
+            newUserType = 'admin';
+          } else if (role === 'teacher') {
+            newUserType = 'teacher';
+          } else if (role === 'student') {
+            newUserType = 'student';
+          }
+          setUserType(newUserType);
+          // Save user type to storage
+          sessionStorage.setItem('app_user_type', newUserType);
+        }
+        
+        // Verify school ID matches route
+        if (schoolId) {
+          // Check schoolStorage first (most reliable)
+          const storedSchoolId = schoolStorage.getSchoolId();
+          const user = authService.getCurrentUser();
+          const userSchoolId = user?.schoolId;
+          
+          // Use stored school ID if available, otherwise use user's schoolId
+          const currentSchoolId = storedSchoolId || userSchoolId;
+          
+          if (currentSchoolId && currentSchoolId !== schoolId) {
+            // School ID mismatch - redirect to correct school dashboard
+            console.log('School ID mismatch, redirecting:', { routeSchoolId: schoolId, currentSchoolId });
+            navigate(`/admin/school/${currentSchoolId}/dashboard`);
+          } else if (!currentSchoolId) {
+            // No school ID found - redirect to school login
+            console.warn('No school ID found, redirecting to school login');
+            navigate('/admin/school-login');
+          }
+        } else {
+          // No schoolId in route - check if we have one stored
+          const storedSchoolId = schoolStorage.getSchoolId();
+          if (storedSchoolId) {
+            // Redirect to dashboard with school ID
+            navigate(`/admin/school/${storedSchoolId}/dashboard`);
+          } else {
+            // No school ID in storage either - redirect to school login
+            navigate('/admin/school-login');
+          }
+        }
+        
+        // Restore current page from storage if available
+        const storedPage = sessionStorage.getItem('app_current_page');
+        if (storedPage) {
+          setCurrentPage(storedPage);
+        }
+      };
+      
+      // Check immediately
+      checkAuth();
+      
+      // Listen for storage changes (for cross-tab sync)
+      const handleStorageChange = (e: StorageEvent) => {
+        if (e.key === 'auth_token' || e.key === 'auth_refresh_token' || e.key === 'auth_user' || e.key === 'school_uuid') {
+          checkAuth();
+        }
+      };
+      
+      window.addEventListener('storage', handleStorageChange);
+      
+      return () => {
+        window.removeEventListener('storage', handleStorageChange);
+      };
+    } else {
+      setIsCheckingAuth(false);
+    }
+  }, [navigate, schoolId]);
 
   useEffect(() => {
     if (theme === 'dark') {
@@ -61,10 +203,21 @@ export default function App() {
   const handleSwitchUser = (type: 'admin' | 'teacher' | 'student') => {
     setUserType(type);
     setCurrentPage('dashboard');
+    // Save to storage
+    sessionStorage.setItem('app_user_type', type);
+    sessionStorage.setItem('app_current_page', 'dashboard');
   };
 
   const handleNavigate = (page: string) => {
     setCurrentPage(page);
+    // Save current page to storage for reload persistence
+    sessionStorage.setItem('app_current_page', page);
+  };
+
+  const handleProfileSettings = () => {
+    setCurrentPage('profile');
+    // Save current page to storage
+    sessionStorage.setItem('app_current_page', 'profile');
   };
 
   const handleMenuToggle = () => {
@@ -113,6 +266,8 @@ export default function App() {
           return <Analytics />;
         case 'settings':
           return <Settings />;
+        case 'profile':
+          return <AdminProfile />;
         default:
           return <AdminDashboard />;
       }
@@ -165,16 +320,58 @@ export default function App() {
 
   const handleLoginSuccess = (role: UserRole) => {
     setIsAuthenticated(true);
-    setUserType(role as 'admin' | 'teacher' | 'student');
+    const userTypeValue = role as 'admin' | 'teacher' | 'student';
+    setUserType(userTypeValue);
     setCurrentPage('dashboard');
+    // Save to storage
+    sessionStorage.setItem('app_user_type', userTypeValue);
+    sessionStorage.setItem('app_current_page', 'dashboard');
   };
 
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setCurrentPage('dashboard');
+  const handleLogout = async () => {
+    try {
+      // Call logout API
+      await authService.logout({
+        logoutAllDevices: false,
+      });
+      
+      // Clear local state
+      setIsAuthenticated(false);
+      setCurrentPage('dashboard');
+      
+      // Clear page storage on logout
+      sessionStorage.removeItem('app_current_page');
+      sessionStorage.removeItem('app_user_type');
+      
+      // Show success message
+      toast.success('Logged out successfully');
+    } catch (error: any) {
+      // Even if API fails, clear local state (tokens already cleared by service)
+      setIsAuthenticated(false);
+      setCurrentPage('dashboard');
+      
+      // Clear page storage on logout
+      sessionStorage.removeItem('app_current_page');
+      sessionStorage.removeItem('app_user_type');
+      
+      // Show info message (not error, since local session is cleared)
+      toast.info('Logged out successfully');
+    }
   };
 
   const userInfo = getUserInfo();
+
+  // Show loading state while checking authentication
+  if (isCheckingAuth) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-white dark:bg-gray-950">
+        <div className="text-center">
+          <div className="mb-4 inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-[#2563EB] border-r-transparent"></div>
+          <p className="text-gray-600 dark:text-gray-400">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   // Show authentication system if not authenticated
   if (!isAuthenticated) {
@@ -187,7 +384,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-[#E8F0FE] dark:bg-gray-950">
+    <div className="flex h-screen bg-white dark:bg-gray-950">
       <Sidebar 
         userType={userType} 
         currentPage={currentPage} 
@@ -205,6 +402,7 @@ export default function App() {
           onMenuToggle={handleMenuToggle}
           onSwitchUser={handleSwitchUser}
           onLogout={handleLogout}
+          onProfileSettings={handleProfileSettings}
         />
         
         <main className="flex-1 overflow-y-auto p-6">

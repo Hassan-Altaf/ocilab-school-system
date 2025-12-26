@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, ChevronLeft, ChevronRight, Calendar, Plus, Trash2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../../ui/dialog';
 import { Button } from '../../ui/button';
@@ -7,8 +7,14 @@ import { Label } from '../../ui/label';
 import { Textarea } from '../../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../ui/select';
 import { Checkbox } from '../../ui/checkbox';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { ScrollArea } from '../../ui/scroll-area';
+import { adminService } from '../../../services';
+import { CreateExaminationRequest, ExamType } from '../../../types/examination.types';
+import { ClassResponse } from '../../../types/class.types';
+import { AcademicYear } from '../../../types/academic-year.types';
+import { ApiException, getUserFriendlyError } from '../../../utils/errors';
+import { schoolStorage, userStorage } from '../../../utils/storage';
 
 interface CreateExamProps {
   onClose: () => void;
@@ -26,30 +32,17 @@ interface TimeSlot {
   room: string;
 }
 
-const classes = [
-  { id: '10-a', name: 'Class 10-A', students: 45 },
-  { id: '10-b', name: 'Class 10-B', students: 42 },
-  { id: '11-a', name: 'Class 11-A', students: 38 },
-  { id: '11-b', name: 'Class 11-B', students: 40 },
-  { id: '12-a', name: 'Class 12-A', students: 35 },
-  { id: '12-b', name: 'Class 12-B', students: 37 }
-];
-
-const subjects = [
-  { id: 'math', name: 'Mathematics', icon: '📐' },
-  { id: 'physics', name: 'Physics', icon: '⚛️' },
-  { id: 'chemistry', name: 'Chemistry', icon: '🧪' },
-  { id: 'biology', name: 'Biology', icon: '🧬' },
-  { id: 'english', name: 'English', icon: '📚' },
-  { id: 'history', name: 'History', icon: '📜' }
-];
+// Mock data removed - now using API data
 
 export function CreateExam({ onClose, onSuccess }: CreateExamProps) {
   const [step, setStep] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [classes, setClasses] = useState<ClassResponse[]>([]);
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [formData, setFormData] = useState({
     examName: '',
-    academicYear: '2024-2025',
-    examType: '',
+    academicYearId: '',
+    examType: '' as ExamType | '',
     startDate: '',
     endDate: '',
     description: ''
@@ -68,6 +61,36 @@ export function CreateExam({ onClose, onSuccess }: CreateExamProps) {
       room: ''
     }
   ]);
+
+  // Fetch classes and academic years on mount
+  useEffect(() => {
+    fetchClasses();
+    fetchAcademicYears();
+  }, []);
+
+  const fetchClasses = async () => {
+    try {
+      const response = await adminService.getClasses();
+      setClasses(response.classes || []);
+    } catch (error: any) {
+      console.error('Error fetching classes:', error);
+      toast.error('Failed to load classes');
+    }
+  };
+
+  const fetchAcademicYears = async () => {
+    try {
+      const response = await adminService.getAcademicYears();
+      setAcademicYears(response.academicYears || []);
+      // Set default academic year if available
+      if (response.academicYears && response.academicYears.length > 0) {
+        const currentYear = response.academicYears.find(ay => ay.isActive) || response.academicYears[0];
+        setFormData(prev => ({ ...prev, academicYearId: currentYear.id }));
+      }
+    } catch (error: any) {
+      console.error('Error fetching academic years:', error);
+    }
+  };
 
   const handleNext = () => {
     if (step === 1) {
@@ -89,9 +112,71 @@ export function CreateExam({ onClose, onSuccess }: CreateExamProps) {
     if (step > 1) setStep(step - 1);
   };
 
-  const handleSubmit = () => {
-    toast.success('Examination scheduled successfully!');
-    onSuccess();
+  const handleSubmit = async () => {
+    if (!formData.examName || !formData.examType || !formData.academicYearId || !formData.startDate || !formData.endDate) {
+      toast.error('Please fill all required fields');
+      return;
+    }
+
+    if (selectedClasses.length === 0 || selectedSubjects.length === 0) {
+      toast.error('Please select at least one class and subject');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const schoolId = schoolStorage.getSchoolId();
+      const currentUser = userStorage.getUser();
+      const createdBy = currentUser?.id || currentUser?.uuid || '';
+
+      if (!schoolId || !createdBy) {
+        toast.error('Unable to identify school or user');
+        return;
+      }
+
+      const request: CreateExaminationRequest = {
+        schoolId,
+        examName: formData.examName,
+        examType: formData.examType as ExamType,
+        academicYearId: formData.academicYearId,
+        description: formData.description || undefined,
+        startDate: formData.startDate,
+        endDate: formData.endDate,
+        examClasses: selectedClasses.map(classId => ({
+          classId,
+          sectionId: undefined, // Can be enhanced to select specific sections
+        })),
+        examSubjects: selectedSubjects.map(subjectId => ({
+          subjectId,
+          totalMarks: 100, // Default, can be made configurable
+          passingMarks: 40,
+          weightage: 1,
+        })),
+        examSchedules: timeSlots.filter(slot => slot.date && slot.startTime && slot.endTime).map(slot => ({
+          classId: slot.class,
+          sectionId: undefined,
+          subjectId: slot.subject,
+          examDate: slot.date,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          roomNumber: slot.room || undefined,
+        })),
+        createdBy,
+      };
+
+      await adminService.createExamination(request);
+      toast.success('Examination scheduled successfully!');
+      onSuccess();
+    } catch (error: any) {
+      console.error('Error creating examination:', error);
+      let errorMessage = 'Failed to create examination';
+      if (error instanceof ApiException) {
+        errorMessage = getUserFriendlyError(error);
+      }
+      toast.error(errorMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const toggleClass = (classId: string) => {
@@ -187,14 +272,14 @@ export function CreateExam({ onClose, onSuccess }: CreateExamProps) {
                     <Label htmlFor="academicYear">
                       Academic Year <span className="text-red-500">*</span>
                     </Label>
-                    <Select value={formData.academicYear} onValueChange={(value) => setFormData({ ...formData, academicYear: value })}>
+                    <Select value={formData.academicYearId} onValueChange={(value) => setFormData({ ...formData, academicYearId: value })}>
                       <SelectTrigger className="mt-1 bg-gray-50 dark:bg-gray-800">
-                        <SelectValue />
+                        <SelectValue placeholder="Select academic year" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="2024-2025">2024-2025</SelectItem>
-                        <SelectItem value="2023-2024">2023-2024</SelectItem>
-                        <SelectItem value="2022-2023">2022-2023</SelectItem>
+                        {academicYears.map(ay => (
+                          <SelectItem key={ay.id} value={ay.id}>{ay.yearName}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -203,15 +288,16 @@ export function CreateExam({ onClose, onSuccess }: CreateExamProps) {
                     <Label htmlFor="examType">
                       Exam Type <span className="text-red-500">*</span>
                     </Label>
-                    <Select value={formData.examType} onValueChange={(value) => setFormData({ ...formData, examType: value })}>
+                    <Select value={formData.examType} onValueChange={(value) => setFormData({ ...formData, examType: value as ExamType })}>
                       <SelectTrigger className="mt-1 bg-gray-50 dark:bg-gray-800">
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Mid-Term">Mid-Term</SelectItem>
-                        <SelectItem value="Final">Final</SelectItem>
-                        <SelectItem value="Unit Test">Unit Test</SelectItem>
-                        <SelectItem value="Monthly">Monthly Test</SelectItem>
+                        <SelectItem value="QUIZ">Quiz</SelectItem>
+                        <SelectItem value="MID_TERM">Mid-Term</SelectItem>
+                        <SelectItem value="FINAL">Final</SelectItem>
+                        <SelectItem value="ASSIGNMENT">Assignment</SelectItem>
+                        <SelectItem value="PROJECT">Project</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -296,25 +382,48 @@ export function CreateExam({ onClose, onSuccess }: CreateExamProps) {
                     <Label className="mb-3 block">
                       Subjects <span className="text-red-500">*</span>
                     </Label>
-                    <div className="grid grid-cols-2 gap-3">
-                      {subjects.map((subject) => (
-                        <div
-                          key={subject.id}
-                          onClick={() => toggleSubject(subject.id)}
-                          className={`p-4 rounded-lg border-2 cursor-pointer transition-all duration-200 ${
-                            selectedSubjects.includes(subject.id)
-                              ? 'border-[#2563EB] bg-blue-50 dark:bg-blue-900/20'
-                              : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
-                          }`}
-                        >
-                          <div className="text-center">
-                            <div className="text-2xl mb-2">{subject.icon}</div>
-                            <div className="text-sm text-gray-900 dark:text-white font-medium">
-                              {subject.name}
+                    <div className="space-y-2 max-h-64 overflow-y-auto p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      {(() => {
+                        // Extract unique subjects from selected classes
+                        const allSubjects = new Map<string, { id: string; name: string; code: string }>();
+                        classes
+                          .filter(cls => selectedClasses.includes(cls.id))
+                          .forEach(cls => {
+                            cls.subjects?.forEach(subject => {
+                              if (!allSubjects.has(subject.id)) {
+                                allSubjects.set(subject.id, subject);
+                              }
+                            });
+                          });
+                        const uniqueSubjects = Array.from(allSubjects.values());
+                        
+                        return uniqueSubjects.length > 0 ? (
+                          uniqueSubjects.map((subject) => (
+                            <div key={subject.id} className="flex items-center space-x-2">
+                              <Checkbox
+                                id={`subject-${subject.id}`}
+                                checked={selectedSubjects.includes(subject.id)}
+                                onCheckedChange={() => toggleSubject(subject.id)}
+                              />
+                              <label
+                                htmlFor={`subject-${subject.id}`}
+                                className="text-sm text-gray-700 dark:text-gray-300 cursor-pointer flex-1"
+                              >
+                                {subject.name}
+                                {subject.code && (
+                                  <span className="text-xs text-gray-500 ml-2">({subject.code})</span>
+                                )}
+                              </label>
                             </div>
-                          </div>
-                        </div>
-                      ))}
+                          ))
+                        ) : (
+                          <p className="text-sm text-gray-500 text-center py-4">
+                            {selectedClasses.length === 0 
+                              ? 'Please select classes first to see subjects'
+                              : 'No subjects found in selected classes'}
+                          </p>
+                        );
+                      })()}
                     </div>
                     <p className="text-xs text-gray-500 mt-2">
                       {selectedSubjects.length} subject{selectedSubjects.length !== 1 ? 's' : ''} selected
@@ -355,9 +464,22 @@ export function CreateExam({ onClose, onSuccess }: CreateExamProps) {
                               <SelectValue placeholder="Select" />
                             </SelectTrigger>
                             <SelectContent>
-                              {subjects.filter(s => selectedSubjects.includes(s.id)).map(subject => (
-                                <SelectItem key={subject.id} value={subject.id}>{subject.name}</SelectItem>
-                              ))}
+                              {(() => {
+                                // Extract unique subjects from selected classes
+                                const allSubjects = new Map<string, { id: string; name: string }>();
+                                classes
+                                  .filter(cls => selectedClasses.includes(cls.id))
+                                  .forEach(cls => {
+                                    cls.subjects?.forEach(subject => {
+                                      if (!allSubjects.has(subject.id) && selectedSubjects.includes(subject.id)) {
+                                        allSubjects.set(subject.id, subject);
+                                      }
+                                    });
+                                  });
+                                return Array.from(allSubjects.values()).map(subject => (
+                                  <SelectItem key={subject.id} value={subject.id}>{subject.name}</SelectItem>
+                                ));
+                              })()}
                             </SelectContent>
                           </Select>
                         </div>

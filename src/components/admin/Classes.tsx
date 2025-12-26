@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, Search, Filter, BookOpen, Users, GraduationCap, MoreVertical, Edit, Trash2, Eye, Settings } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -43,6 +43,10 @@ import { Checkbox } from '../ui/checkbox';
 import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '../ui/separator';
 import { toast } from 'sonner';
+import { adminService } from '../../services';
+import { AddClassRequest, UpdateClassRequest } from '../../types/class.types';
+import { ApiException, getUserFriendlyError } from '../../utils/errors';
+import { schoolStorage } from '../../utils/storage';
 
 interface Subject {
   id: string;
@@ -161,8 +165,176 @@ const allSubjects = [
   { id: 'sub12', name: 'Physical Education', code: 'PE' },
 ];
 
+type ApiSection = any;
+type ApiSubject = any;
+type ApiClass = any;
+
+function normalizeSection(section: ApiSection): Section {
+  if (!section) {
+    return {
+      id: `${Date.now()}`,
+      name: '',
+      capacity: 0,
+      enrolled: 0,
+      room: '',
+    };
+  }
+
+  // Handle section name - might be 'name' or 'sectionName'
+  const sectionName = section?.name || section?.sectionName || '';
+  
+  // Handle capacity - might be 'capacity' or 'maxCapacity'
+  const capacity = Number(section?.capacity) || Number(section?.maxCapacity) || 0;
+  
+  // Handle enrolled - might be 'enrolled', 'enrolledStudents', or 'currentStudents'
+  const enrolled = Number(section?.enrolled) || 
+                   Number(section?.enrolledStudents) || 
+                   Number(section?.currentStudents) || 
+                   0;
+  
+  // Handle room - might be 'room' or 'roomNumber'
+  const room = section?.room || section?.roomNumber || '';
+  
+  // Handle class teacher
+  const classTeacher = typeof section?.classTeacher === 'string' 
+    ? section.classTeacher 
+    : (section?.classTeacher?.name || section?.classTeacherName || '');
+  
+  const classTeacherId = section?.classTeacherId || section?.classTeacher?.id || section?.classTeacher?.uuid;
+
+  return {
+    id: section?.id || section?.uuid || crypto.randomUUID?.() || `${Date.now()}`,
+    name: typeof sectionName === 'string' ? sectionName : String(sectionName || ''),
+    capacity,
+    enrolled,
+    room,
+    classTeacher,
+    classTeacherId,
+  };
+}
+
+function normalizeSubject(subject: ApiSubject): Subject {
+  if (!subject) {
+    return {
+      id: `${Date.now()}`,
+      name: '',
+      code: '',
+      teacher: '',
+    };
+  }
+
+  // Handle subject name - might be 'name' or 'subjectName'
+  const subjectName = subject?.name || subject?.subjectName || '';
+  
+  // Handle subject code - might be 'code' or 'subjectCode'
+  const subjectCode = subject?.code || subject?.subjectCode || '';
+  
+  // Handle teacher - might be object or string
+  const teacher = typeof subject?.teacher === 'string' 
+    ? subject.teacher 
+    : (subject?.teacher?.name || subject?.teacherName || '');
+  
+  const teacherId = subject?.teacherId || subject?.teacher?.id || subject?.teacher?.uuid;
+
+  return {
+    id: subject?.id || subject?.uuid || crypto.randomUUID?.() || `${Date.now()}`,
+    name: typeof subjectName === 'string' ? subjectName : String(subjectName || ''),
+    code: subjectCode,
+    teacher,
+    teacherId,
+  };
+}
+
+function normalizeClass(cls: ApiClass): ClassData {
+  if (!cls) {
+    console.warn('normalizeClass: Received null/undefined class data');
+    return {
+      id: `${Date.now()}`,
+      name: 'Unnamed Class',
+      grade: 0,
+      academicYear: '',
+      sections: [],
+      subjects: [],
+      totalStudents: 0,
+      totalCapacity: 0,
+    };
+  }
+
+  // Handle sections - check multiple possible structures
+  let sections: Section[] = [];
+  if (Array.isArray(cls?.sections)) {
+    sections = cls.sections.map(normalizeSection);
+  } else if (cls?.sections && typeof cls.sections === 'object') {
+    // If sections is an object with array inside
+    const sectionsArray = (cls.sections as any).data || (cls.sections as any).sections || [];
+    sections = Array.isArray(sectionsArray) ? sectionsArray.map(normalizeSection) : [];
+  }
+
+  // Handle subjects - check multiple possible structures
+  let subjects: Subject[] = [];
+  if (Array.isArray(cls?.subjects)) {
+    subjects = cls.subjects.map(normalizeSubject);
+  } else if (cls?.subjects && typeof cls.subjects === 'object') {
+    // If subjects is an object with array inside
+    const subjectsArray = (cls.subjects as any).data || (cls.subjects as any).subjects || [];
+    subjects = Array.isArray(subjectsArray) ? subjectsArray.map(normalizeSubject) : [];
+  }
+
+  // Calculate total capacity
+  const totalCapacity = Number(cls?.totalCapacity) ||
+    (sections.length ? sections.reduce((sum, s) => sum + (Number(s.capacity) || 0), 0) : 0);
+
+  // Handle class name - backend might return 'className' or 'name'
+  const className = cls?.className || cls?.name || '';
+  const classId = cls?.id || cls?.uuid || `${Date.now()}`;
+  const classGrade = Number(cls?.grade) || Number(cls?.gradeLevel) || 0;
+  
+  // Handle academic year - might be string, object with yearName, or nested
+  let academicYearValue = '';
+  if (typeof cls?.academicYear === 'string') {
+    academicYearValue = cls.academicYear;
+  } else if (cls?.academicYear && typeof cls.academicYear === 'object') {
+    // If academicYear is an object, extract yearName
+    academicYearValue = cls.academicYear.yearName || cls.academicYear.name || cls.academicYear.year || '';
+  } else if (cls?.academicYearName) {
+    academicYearValue = cls.academicYearName;
+  } else if (cls?.academicYear?.yearName) {
+    academicYearValue = cls.academicYear.yearName;
+  }
+  
+  const totalStudentsValue = Number(cls?.totalStudents) || Number(cls?.enrolledStudents) || 0;
+
+  if (import.meta.env.DEV) {
+    console.log('Normalize Class:', {
+      raw: cls,
+      normalized: {
+        id: classId,
+        name: className,
+        grade: classGrade,
+        academicYear: academicYearValue,
+        sectionsCount: sections.length,
+        subjectsCount: subjects.length,
+        totalStudents: totalStudentsValue,
+        totalCapacity,
+      },
+    });
+  }
+
+  return {
+    id: classId,
+    name: typeof className === 'string' ? className : String(className || 'Unnamed Class'),
+    grade: classGrade,
+    academicYear: typeof academicYearValue === 'string' ? academicYearValue : String(academicYearValue || ''),
+    sections,
+    subjects,
+    totalStudents: totalStudentsValue,
+    totalCapacity,
+  };
+}
+
 export function Classes() {
-  const [classes, setClasses] = useState<ClassData[]>(mockClasses);
+  const [classes, setClasses] = useState<ClassData[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [selectedClass, setSelectedClass] = useState<ClassData | null>(null);
@@ -171,14 +343,82 @@ export function Classes() {
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [classToDelete, setClassToDelete] = useState<ClassData | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Form states
   const [className, setClassName] = useState('');
   const [gradeLevel, setGradeLevel] = useState('');
+  const [academicYear, setAcademicYear] = useState('2024-2025');
+  const [academicYearId, setAcademicYearId] = useState<string>('');
+  const [academicYears, setAcademicYears] = useState<Array<{ id: string; yearName: string }>>([]);
   const [sections, setSections] = useState<Section[]>([
     { id: '1', name: 'A', capacity: 40, enrolled: 0, room: '' }
   ]);
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
+
+  // Fetch classes and academic years on mount
+  useEffect(() => {
+    fetchClasses();
+    fetchAcademicYears();
+  }, []);
+
+  const fetchClasses = async () => {
+    setIsLoading(true);
+    try {
+      const response = await adminService.getClasses();
+
+      if (import.meta.env.DEV) {
+        console.log('Fetch Classes Response:', {
+          response,
+          classes: response?.classes,
+          classesCount: Array.isArray(response?.classes) ? response.classes.length : 0,
+          firstClass: Array.isArray(response?.classes) ? response.classes[0] : null,
+        });
+      }
+
+      const classesData: ClassData[] = Array.isArray(response?.classes)
+        ? response.classes.map(normalizeClass)
+        : [];
+
+      if (import.meta.env.DEV) {
+        console.log('Normalized Classes:', {
+          count: classesData.length,
+          classes: classesData,
+          firstClassNormalized: classesData[0],
+        });
+      }
+
+      setClasses(classesData);
+    } catch (error: any) {
+      console.error('Error fetching classes:', error);
+      toast.error('Failed to load classes. Please try again.');
+      setClasses([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchAcademicYears = async () => {
+    try {
+      const response = await adminService.getAcademicYears();
+      const years = response.academicYears || [];
+      
+      setAcademicYears(years.map(ay => ({ id: ay.id || ay.uuid || '', yearName: ay.yearName })));
+      
+      // Auto-select current year or first year
+      if (years.length > 0) {
+        const currentYear = years.find(ay => ay.isCurrent) || years[0];
+        if (currentYear) {
+          setAcademicYear(currentYear.yearName);
+          setAcademicYearId(currentYear.id || currentYear.uuid || '');
+        }
+      }
+    } catch (error: any) {
+      console.error('Error fetching academic years:', error);
+      // Don't show error toast, just log it
+    }
+  };
 
   const totalClasses = classes.length;
   const totalSections = classes.reduce((sum, cls) => sum + cls.sections.length, 0);
@@ -204,9 +444,47 @@ export function Classes() {
     setSections(sections.map(s => s.id === id ? { ...s, [field]: value } : s));
   };
 
-  const handleViewDetails = (classData: ClassData) => {
-    setSelectedClass(classData);
-    setShowDetailDialog(true);
+  const handleViewDetails = async (classData: ClassData) => {
+    try {
+      const response = await adminService.getClassById(classData.id);
+
+      if (import.meta.env.DEV) {
+        console.log('View Details Response:', {
+          classId: classData.id,
+          response,
+          data: response.data,
+        });
+      }
+
+      if (response.data) {
+        const classDetails = normalizeClass(response.data);
+
+        if (import.meta.env.DEV) {
+          console.log('View Details Normalized:', {
+            classDetails,
+            name: classDetails.name,
+            sections: classDetails.sections,
+            subjects: classDetails.subjects,
+          });
+        }
+
+        setSelectedClass(classDetails);
+        setShowDetailDialog(true);
+      } else {
+        // Fallback to cached data
+        const normalized = normalizeClass(classData);
+        setSelectedClass(normalized);
+        setShowDetailDialog(true);
+      }
+    } catch (error: any) {
+      console.error('Error fetching class details:', error);
+      toast.error('Failed to load class details. Showing cached data.');
+      
+      // Use cached data as fallback
+      const normalized = normalizeClass(classData);
+      setSelectedClass(normalized);
+      setShowDetailDialog(true);
+    }
   };
 
   const handleSubjectToggle = (subjectId: string) => {
@@ -217,15 +495,84 @@ export function Classes() {
     );
   };
 
-  const handleEditClass = (classData: ClassData) => {
-    setEditingClassId(classData.id);
-    setIsEditMode(true);
-    setClassName(classData.name);
-    setGradeLevel(classData.grade.toString());
-    setSections(classData.sections.map(s => ({ ...s })));
-    setSelectedSubjects(classData.subjects.map(s => s.id));
-    setActiveTab('overview');
-    setShowAddDialog(true);
+  const handleEditClass = async (classData: ClassData) => {
+    try {
+      const response = await adminService.getClassById(classData.id);
+
+      if (import.meta.env.DEV) {
+        console.log('Edit Class Response:', {
+          classId: classData.id,
+          response,
+          data: response.data,
+        });
+      }
+
+      if (response.data) {
+        const classDetails = normalizeClass(response.data);
+
+        if (import.meta.env.DEV) {
+          console.log('Edit Class Normalized:', {
+            classDetails,
+            name: classDetails.name,
+            grade: classDetails.grade,
+            academicYear: classDetails.academicYear,
+            sections: classDetails.sections,
+            subjects: classDetails.subjects,
+          });
+        }
+
+        setEditingClassId(classDetails.id);
+        setIsEditMode(true);
+        setClassName(classDetails.name);
+        setGradeLevel(classDetails.grade.toString());
+        setAcademicYear(classDetails.academicYear);
+        
+        // Set sections with proper structure
+        const normalizedSections = classDetails.sections.map(s => ({
+          id: s.id,
+          name: s.name,
+          capacity: s.capacity,
+          enrolled: s.enrolled || 0,
+          room: s.room || '',
+          classTeacher: s.classTeacher,
+          classTeacherId: s.classTeacherId,
+        }));
+        setSections(normalizedSections.length > 0 ? normalizedSections : [{ id: '1', name: 'A', capacity: 40, enrolled: 0, room: '' }]);
+        
+        // Set selected subjects
+        setSelectedSubjects(classDetails.subjects.map(s => s.id).filter(id => id));
+        
+        setActiveTab('overview');
+        setShowAddDialog(true);
+      } else {
+        // Fallback to cached data
+        const normalized = normalizeClass(classData);
+        setEditingClassId(normalized.id);
+        setIsEditMode(true);
+        setClassName(normalized.name);
+        setGradeLevel(normalized.grade.toString());
+        setAcademicYear(normalized.academicYear);
+        setSections(normalized.sections.map(s => ({ ...s })));
+        setSelectedSubjects(normalized.subjects.map(s => s.id).filter(id => id));
+        setActiveTab('overview');
+        setShowAddDialog(true);
+      }
+    } catch (error: any) {
+      console.error('Error fetching class for edit:', error);
+      toast.error('Failed to load class data. Using cached data.');
+      
+      // Use cached data as fallback
+      const normalized = normalizeClass(classData);
+      setEditingClassId(normalized.id);
+      setIsEditMode(true);
+      setClassName(normalized.name);
+      setGradeLevel(normalized.grade.toString());
+      setAcademicYear(normalized.academicYear);
+      setSections(normalized.sections.map(s => ({ ...s })));
+      setSelectedSubjects(normalized.subjects.map(s => s.id).filter(id => id));
+      setActiveTab('overview');
+      setShowAddDialog(true);
+    }
   };
 
   const handleDeleteClass = (classData: ClassData) => {
@@ -233,83 +580,279 @@ export function Classes() {
     setShowDeleteDialog(true);
   };
 
-  const confirmDelete = () => {
-    if (classToDelete) {
+  const confirmDelete = async () => {
+    if (!classToDelete) return;
+
+    setIsDeleting(true);
+    try {
+      await adminService.deleteClass(classToDelete.id);
+
       setClasses(classes.filter(c => c.id !== classToDelete.id));
       toast.success(`Class "${classToDelete.name}" deleted successfully`);
       setShowDeleteDialog(false);
       setClassToDelete(null);
+    } catch (error: any) {
+      let errorMessage = 'Failed to delete class. Please try again.';
+
+      if (error instanceof ApiException) {
+        errorMessage = getUserFriendlyError(error);
+      } else if (error?.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+
+      toast.error(errorMessage);
+      console.error('Delete class error:', error);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
-  const handleSubmitClass = () => {
-    if (isEditMode && editingClassId) {
-      // Update existing class
-      const updatedClass: ClassData = {
-        id: editingClassId,
-        name: className,
-        grade: parseInt(gradeLevel),
-        academicYear: classes.find(c => c.id === editingClassId)?.academicYear || '2024-2025',
-        sections: sections,
-        subjects: allSubjects
-          .filter(sub => selectedSubjects.includes(sub.id))
-          .map(sub => {
-            // Preserve existing teacher assignments if available
-            const existingClass = classes.find(c => c.id === editingClassId);
-            const existingSubject = existingClass?.subjects.find(s => s.id === sub.id);
-            return {
-              ...sub,
-              teacher: existingSubject?.teacher || '',
-              teacherId: existingSubject?.teacherId,
-            };
-          }),
-        totalStudents: sections.reduce((sum, s) => sum + s.enrolled, 0),
-        totalCapacity: sections.reduce((sum, s) => sum + s.capacity, 0),
-      };
-
-      setClasses(classes.map(c => c.id === editingClassId ? updatedClass : c));
-      toast.success(`Class "${className}" updated successfully`);
-    } else {
-      // Add new class
-      const newClass: ClassData = {
-        id: `${Date.now()}`, // Use timestamp for unique ID
-        name: className,
-        grade: parseInt(gradeLevel),
-        academicYear: '2024-2025',
-        sections: sections,
-        subjects: allSubjects
-          .filter(sub => selectedSubjects.includes(sub.id))
-          .map(sub => ({ ...sub, teacher: '' })),
-        totalStudents: sections.reduce((sum, s) => sum + s.enrolled, 0),
-        totalCapacity: sections.reduce((sum, s) => sum + s.capacity, 0),
-      };
-
-      setClasses([...classes, newClass]);
-      toast.success(`Class "${className}" created successfully`);
-    }
-
-    setShowAddDialog(false);
-    setIsEditMode(false);
-    setEditingClassId(null);
-
-    // Reset form
+  const handleResetForm = () => {
     setClassName('');
     setGradeLevel('');
+    setAcademicYear('2024-2025');
     setSections([{ id: '1', name: 'A', capacity: 40, enrolled: 0, room: '' }]);
     setSelectedSubjects([]);
     setActiveTab('overview');
+  };
+
+  const handleSubmitClass = async () => {
+    // Validate required fields
+    if (!className || className.trim() === '') {
+      toast.error('Class name is required');
+      return;
+    }
+
+    if (!gradeLevel || gradeLevel.trim() === '') {
+      toast.error('Grade level is required');
+      return;
+    }
+
+    if (!sections || sections.length === 0) {
+      toast.error('At least one section is required');
+      return;
+    }
+
+    // Validate sections
+    for (const section of sections) {
+      if (!section.name || section.name.trim() === '') {
+        toast.error('All sections must have a name');
+        return;
+      }
+      if (!section.capacity || section.capacity <= 0) {
+        toast.error('All sections must have a valid capacity');
+        return;
+      }
+    }
+
+    if (isEditMode && editingClassId) {
+      // Update existing class - Call API
+      setIsSubmitting(true);
+      try {
+        const requestData: UpdateClassRequest = {
+          className: className.trim(), // Backend expects 'className' not 'name'
+          grade: parseInt(gradeLevel) || undefined,
+          academicYear: academicYear.trim(), // REQUIRED - Backend expects this field
+          // Also include academicYearId if available (optional)
+          ...(academicYearId && { academicYearId: academicYearId }),
+          sections: sections.map(section => ({
+            name: section.name.trim(),
+            capacity: section.capacity,
+            room: section.room?.trim() || undefined,
+            classTeacherId: section.classTeacherId || undefined,
+          })),
+          subjectIds: selectedSubjects.length > 0 ? selectedSubjects : undefined,
+        };
+
+        if (import.meta.env.DEV) {
+          console.log('Update Class Request:', {
+            classId: editingClassId,
+            requestData,
+          });
+        }
+
+        const response = await adminService.updateClass(editingClassId, requestData);
+
+        if (response.data) {
+        const updatedClass: ClassData = normalizeClass(response.data);
+
+          setClasses(classes.map(c => c.id === editingClassId ? updatedClass : c));
+          toast.success(`Class "${className}" updated successfully`);
+
+          setShowAddDialog(false);
+          setIsEditMode(false);
+          setEditingClassId(null);
+          handleResetForm();
+        } else {
+          throw new Error('Invalid response from server');
+        }
+      } catch (error: any) {
+        let errorMessage = 'Failed to update class. Please try again.';
+
+        if (error instanceof ApiException) {
+          errorMessage = getUserFriendlyError(error);
+        } else if (error?.response?.data?.message) {
+          errorMessage = error.response.data.message;
+        } else if (error?.response?.data?.error) {
+          errorMessage = error.response.data.error;
+        } else if (Array.isArray(error?.response?.data?.errors)) {
+          errorMessage = error.response.data.errors.join(', ');
+        } else if (error?.message) {
+          errorMessage = error.message;
+        }
+
+        if (import.meta.env.DEV) {
+          console.error('Update class error:', {
+            error,
+            message: errorMessage,
+            response: error?.response,
+            data: error?.response?.data,
+          });
+        }
+
+        toast.error(errorMessage);
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
+    // Add new class - Call API
+    setIsSubmitting(true);
+    try {
+      // Get schoolId from storage
+      const schoolId = schoolStorage.getSchoolId();
+      if (!schoolId) {
+        toast.error('School ID not found', {
+          description: 'Please login again or select a school.',
+        });
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Check if academic year exists, if not create it
+      let finalAcademicYearId = academicYearId;
+      
+      if (!finalAcademicYearId && academicYear.trim()) {
+        // Try to find academic year by name
+        const foundYear = academicYears.find(ay => ay.yearName === academicYear.trim());
+        if (foundYear) {
+          finalAcademicYearId = foundYear.id;
+        } else {
+          // Academic year doesn't exist, create it
+          try {
+            const currentDate = new Date();
+            const year = currentDate.getFullYear();
+            const startDate = `${year}-04-01`; // Academic year typically starts in April
+            const endDate = `${year + 1}-03-31`; // Ends in March next year
+            
+            const createYearResponse = await adminService.createAcademicYear({
+              yearName: academicYear.trim(),
+              startDate: startDate,
+              endDate: endDate,
+              isCurrent: true,
+            });
+            
+            if (createYearResponse.data) {
+              finalAcademicYearId = createYearResponse.data.id || createYearResponse.data.uuid || '';
+              // Refresh academic years list
+              await fetchAcademicYears();
+              toast.success(`Academic year "${academicYear}" created successfully`);
+            }
+          } catch (createError: any) {
+            console.error('Error creating academic year:', createError);
+            toast.error('Failed to create academic year. Please create it manually first.');
+            setIsSubmitting(false);
+            return;
+          }
+        }
+      }
+
+      // Prepare request data
+      // Backend expects: className, academicYear (required), academicYearId (optional)
+      const requestData: AddClassRequest = {
+        className: className.trim(), // Backend expects 'className' not 'name'
+        grade: parseInt(gradeLevel) || undefined,
+        academicYear: academicYear.trim(), // REQUIRED - Backend expects this field
+        // Also include academicYearId if available (optional but helpful)
+        ...(finalAcademicYearId && { academicYearId: finalAcademicYearId }),
+        schoolId: schoolId, // Add schoolId to payload
+        sections: sections.map(section => ({
+          name: section.name.trim(),
+          capacity: section.capacity,
+          room: section.room?.trim() || undefined,
+          classTeacherId: section.classTeacherId || undefined,
+        })),
+        subjectIds: selectedSubjects.length > 0 ? selectedSubjects : undefined,
+      };
+
+      if (import.meta.env.DEV) {
+        console.log('Add Class Request:', {
+          requestData,
+          schoolId,
+          headers: {
+            'X-School-UUID': schoolId,
+          },
+        });
+      }
+
+      // Call API
+      const response = await adminService.addClass(requestData);
+
+      if (response.data) {
+        // Convert API response to ClassData format
+        const newClass: ClassData = normalizeClass(response.data);
+
+        setClasses([...classes, newClass]);
+        toast.success(`Class "${className}" created successfully`);
+
+        setShowAddDialog(false);
+        handleResetForm();
+
+        // Refresh classes list
+        await fetchClasses();
+      } else {
+        throw new Error('Invalid response from server');
+      }
+    } catch (error: any) {
+      let errorMessage = 'Failed to create class. Please try again.';
+
+      if (error instanceof ApiException) {
+        errorMessage = getUserFriendlyError(error);
+      } else if (error?.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error?.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (Array.isArray(error?.response?.data?.errors)) {
+        errorMessage = error.response.data.errors.join(', ');
+      } else if (error?.message) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+
+      if (import.meta.env.DEV) {
+        console.error('Add class error:', {
+          error,
+          message: errorMessage,
+          response: error?.response,
+          data: error?.response?.data,
+        });
+      }
+
+      toast.error(errorMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleCloseDialog = () => {
     setShowAddDialog(false);
     setIsEditMode(false);
     setEditingClassId(null);
-    // Reset form
-    setClassName('');
-    setGradeLevel('');
-    setSections([{ id: '1', name: 'A', capacity: 40, enrolled: 0, room: '' }]);
-    setSelectedSubjects([]);
-    setActiveTab('overview');
+    handleResetForm();
   };
 
   return (
@@ -393,100 +936,120 @@ export function Classes() {
           </Button>
         </div>
 
-        <div className="border rounded-lg overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-gray-50 dark:bg-gray-800">
-                <TableHead>Class</TableHead>
-                <TableHead>Sections</TableHead>
-                <TableHead>Students</TableHead>
-                <TableHead>Capacity</TableHead>
-                <TableHead>Subjects</TableHead>
-                <TableHead>Occupancy</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {classes.map((classData) => {
-                const occupancy = (classData.totalStudents / classData.totalCapacity) * 100;
-                return (
-                  <TableRow key={classData.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                    <TableCell>
-                      <div>
-                        <p className="text-sm text-gray-900 dark:text-white">{classData.name}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          Academic Year: {classData.academicYear}
-                        </p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-1 flex-wrap">
-                        {classData.sections.map(section => (
-                          <Badge key={section.id} variant="outline" className="text-xs">
-                            {section.name}
-                          </Badge>
-                        ))}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-gray-900 dark:text-white">
-                      {classData.totalStudents}
-                    </TableCell>
-                    <TableCell className="text-gray-700 dark:text-gray-300">
-                      {classData.totalCapacity}
-                    </TableCell>
-                    <TableCell className="text-gray-700 dark:text-gray-300">
-                      {classData.subjects.length} subjects
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden max-w-[80px]">
-                          <div
-                            className={`h-full ${occupancy > 90 ? 'bg-red-500' :
-                                occupancy > 75 ? 'bg-orange-500' :
-                                  'bg-green-500'
-                              }`}
-                            style={{ width: `${occupancy}%` }}
-                          ></div>
-                        </div>
-                        <span className="text-sm text-gray-700 dark:text-gray-300">
-                          {occupancy.toFixed(0)}%
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreVertical className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleViewDetails(classData)}>
-                            <Eye className="w-4 h-4 mr-2" />
-                            View Details
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleEditClass(classData)}>
-                            <Edit className="w-4 h-4 mr-2" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            className="text-red-600"
-                            onClick={() => handleDeleteClass(classData)}
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <p className="text-gray-600 dark:text-gray-400">Loading classes...</p>
+          </div>
+        ) : classes.length === 0 ? (
+          <div className="flex items-center justify-center py-12">
+            <p className="text-gray-600 dark:text-gray-400">No classes found. Click "Add Class" to create one.</p>
+          </div>
+        ) : (
+          <>
+            <div className="border rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-gray-50 dark:bg-gray-800">
+                    <TableHead>Class</TableHead>
+                    <TableHead>Sections</TableHead>
+                    <TableHead>Students</TableHead>
+                    <TableHead>Capacity</TableHead>
+                    <TableHead>Subjects</TableHead>
+                    <TableHead>Occupancy</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
+                </TableHeader>
+                <TableBody>
+                  {classes.map((classData) => {
+                    const capacity = Number(classData.totalCapacity) || 0;
+                    const students = Number(classData.totalStudents) || 0;
+                    const occupancy = capacity > 0 ? (students / capacity) * 100 : 0;
+                    const occupancyClass = occupancy > 90
+                      ? 'bg-red-500'
+                      : occupancy > 75
+                        ? 'bg-orange-500'
+                        : 'bg-green-500';
+                    const occupancyBarClasses = ['h-full', occupancyClass].join(' ');
+                    return (
+                      <TableRow key={classData.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                        <TableCell>
+                          <div>
+                            <p className="text-sm text-gray-900 dark:text-white">{classData.name || 'Untitled'}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              Academic Year: {typeof classData.academicYear === 'string' 
+                                ? classData.academicYear 
+                                : (classData.academicYear?.yearName || classData.academicYear?.name || 'N/A')}
+                            </p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1 flex-wrap">
+                            {classData.sections.map(section => (
+                              <Badge key={section.id} variant="outline" className="text-xs">
+                                {section.name}
+                              </Badge>
+                            ))}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-gray-900 dark:text-white">
+                          {classData.totalStudents}
+                        </TableCell>
+                        <TableCell className="text-gray-700 dark:text-gray-300">
+                          {classData.totalCapacity}
+                        </TableCell>
+                        <TableCell className="text-gray-700 dark:text-gray-300">
+                          {classData.subjects.length} subjects
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden max-w-[80px]">
+                              <div
+                                className={occupancyBarClasses}
+                                style={{ width: `${occupancy}%` }}
+                              ></div>
+                            </div>
+                            <span className="text-sm text-gray-700 dark:text-gray-300">
+                              {occupancy.toFixed(0)}%
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon">
+                                <MoreVertical className="w-4 h-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => handleViewDetails(classData)}>
+                                <Eye className="w-4 h-4 mr-2" />
+                                View Details
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleEditClass(classData)}>
+                                <Edit className="w-4 h-4 mr-2" />
+                                Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-red-600"
+                                onClick={() => handleDeleteClass(classData)}
+                              >
+                                <Trash2 className="w-4 h-4 mr-2" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </>
+        )}
       </Card>
 
+      {/* Dialogs */}
       {/* Add/Edit Class Dialog */}
       <Dialog open={showAddDialog} onOpenChange={handleCloseDialog}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -533,7 +1096,12 @@ export function Classes() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="academicYear">Academic Year</Label>
-                    <Input id="academicYear" value="2024-2025" disabled />
+                    <Input
+                      id="academicYear"
+                      value={academicYear}
+                      onChange={(e) => setAcademicYear(e.target.value)}
+                      placeholder="e.g., 2024-2025"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="classType">Class Type</Label>
@@ -623,37 +1191,51 @@ export function Classes() {
               </TabsContent>
 
               <TabsContent value="subjects" className="mt-4 h-full flex flex-col overflow-hidden">
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 flex-shrink-0">
-                  Select subjects to be taught in this class
-                </p>
+                <div className="flex items-center justify-between mb-4 flex-shrink-0">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Select subjects to be taught in this class
+                  </p>
+                  <Badge variant="outline" className="text-sm">
+                    {selectedSubjects.length} {selectedSubjects.length === 1 ? 'Subject' : 'Subjects'} Selected
+                  </Badge>
+                </div>
 
                 <ScrollArea className="flex-1 min-h-0">
                   <div className="grid grid-cols-2 gap-4 pr-4 pb-4">
-                    {allSubjects.map(subject => (
-                      <Card
-                        key={subject.id}
-                        className={`p-4 cursor-pointer transition-all ${selectedSubjects.includes(subject.id)
-                            ? 'border-[#0A66C2] bg-[#E8F0FE] dark:bg-[#0A66C2]/10'
-                            : ''
-                          }`}
-                        onClick={() => handleSubjectToggle(subject.id)}
-                      >
-                        <div className="flex items-start gap-3">
-                          <Checkbox
-                            checked={selectedSubjects.includes(subject.id)}
-                            onCheckedChange={() => handleSubjectToggle(subject.id)}
-                          />
-                          <div className="flex-1">
-                            <p className="text-sm text-gray-900 dark:text-white mb-1">
-                              {subject.name}
-                            </p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">
-                              Code: {subject.code}
-                            </p>
+                    {allSubjects.map(subject => {
+                      const isSelected = selectedSubjects.includes(subject.id);
+                      const subjectClasses = [
+                        'p-4',
+                        'cursor-pointer',
+                        'transition-all',
+                        isSelected ? 'border-[#0A66C2] bg-[#E8F0FE] dark:bg-[#0A66C2]/10' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ');
+
+                      return (
+                        <Card
+                          key={subject.id}
+                          className={subjectClasses}
+                          onClick={() => handleSubjectToggle(subject.id)}
+                        >
+                          <div className="flex items-start gap-3">
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => handleSubjectToggle(subject.id)}
+                            />
+                            <div className="flex-1">
+                              <p className="text-sm text-gray-900 dark:text-white mb-1">
+                                {subject.name}
+                              </p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                Code: {subject.code}
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                      </Card>
-                    ))}
+                        </Card>
+                      );
+                    })}
                   </div>
                 </ScrollArea>
               </TabsContent>
@@ -670,8 +1252,9 @@ export function Classes() {
               <Button
                 className="bg-[#0A66C2] hover:bg-[#0052A3]"
                 onClick={handleSubmitClass}
+                disabled={isSubmitting}
               >
-                {isEditMode ? 'Update Class' : 'Create Class'}
+                {isSubmitting ? 'Creating...' : isEditMode ? 'Update Class' : 'Create Class'}
               </Button>
             ) : (
               <Button
@@ -767,39 +1350,41 @@ export function Classes() {
 
                 {/* Subjects Detail */}
                 <div>
-                  <h3 className="text-lg text-gray-900 dark:text-white mb-3">Subject Mapping</h3>
-                  <div className="border rounded-lg overflow-hidden">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-gray-50 dark:bg-gray-800">
-                          <TableHead>Subject</TableHead>
-                          <TableHead>Code</TableHead>
-                          <TableHead>Assigned Teacher</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {selectedClass.subjects.map(subject => (
-                          <TableRow key={subject.id}>
-                            <TableCell className="text-gray-900 dark:text-white">
-                              {subject.name}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="outline">{subject.code}</Badge>
-                            </TableCell>
-                            <TableCell className="text-gray-700 dark:text-gray-300">
-                              {subject.teacher || 'Not assigned'}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <Button variant="ghost" size="sm">
-                                Assign Teacher
-                              </Button>
-                            </TableCell>
+                  <h3 className="text-lg text-gray-900 dark:text-white mb-3">
+                    Subject Mapping ({selectedClass.subjects.length} {selectedClass.subjects.length === 1 ? 'Subject' : 'Subjects'})
+                  </h3>
+                  {selectedClass.subjects.length > 0 ? (
+                    <div className="border rounded-lg overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-gray-50 dark:bg-gray-800">
+                            <TableHead>Subject</TableHead>
+                            <TableHead>Code</TableHead>
+                            <TableHead>Assigned Teacher</TableHead>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                        </TableHeader>
+                        <TableBody>
+                          {selectedClass.subjects.map(subject => (
+                            <TableRow key={subject.id}>
+                              <TableCell className="text-gray-900 dark:text-white">
+                                {subject.name || 'Unnamed Subject'}
+                              </TableCell>
+                              <TableCell className="text-gray-700 dark:text-gray-300">
+                                {subject.code || '-'}
+                              </TableCell>
+                              <TableCell className="text-gray-700 dark:text-gray-300">
+                                {subject.teacher || 'Not Assigned'}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <Card className="p-6 text-center">
+                      <p className="text-gray-500 dark:text-gray-400">No subjects assigned to this class yet.</p>
+                    </Card>
+                  )}
                 </div>
               </div>
             </ScrollArea>
@@ -821,14 +1406,15 @@ export function Classes() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setClassToDelete(null)}>
+            <AlertDialogCancel onClick={() => setClassToDelete(null)} disabled={isDeleting}>
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmDelete}
               className="bg-red-600 hover:bg-red-700 text-white"
+              disabled={isDeleting}
             >
-              Delete
+              {isDeleting ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

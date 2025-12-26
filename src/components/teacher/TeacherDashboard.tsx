@@ -1,46 +1,210 @@
+import { useState, useEffect } from 'react';
 import { Calendar, Users, FileText, CheckCircle, Clock } from 'lucide-react';
 import { StatCard } from '../dashboard/StatCard';
 import { Card } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-
-const upcomingClasses = [
-  { id: 1, subject: 'Mathematics', class: 'Grade 10A', time: '09:00 AM', duration: '1 hour', room: 'Room 201' },
-  { id: 2, subject: 'Mathematics', class: 'Grade 9B', time: '11:00 AM', duration: '1 hour', room: 'Room 203' },
-  { id: 3, subject: 'Mathematics', class: 'Grade 11A', time: '02:00 PM', duration: '1 hour', room: 'Room 201' },
-];
-
-const recentAssignments = [
-  { id: 1, title: 'Quadratic Equations Worksheet', class: 'Grade 10A', submitted: 28, total: 32, dueDate: '2024-11-08' },
-  { id: 2, title: 'Trigonometry Practice', class: 'Grade 9B', submitted: 25, total: 30, dueDate: '2024-11-10' },
-  { id: 3, title: 'Calculus Problem Set', class: 'Grade 11A', submitted: 22, total: 28, dueDate: '2024-11-12' },
-];
-
-const todayAttendance = [
-  { class: 'Grade 10A', present: 28, absent: 4, total: 32, time: '09:00 AM' },
-  { class: 'Grade 9B', present: 26, absent: 4, total: 30, time: '11:00 AM' },
-];
-
-const pendingTasks = [
-  { id: 1, task: 'Grade mid-term exams for Grade 10A', priority: 'High', dueDate: 'Tomorrow' },
-  { id: 2, task: 'Prepare lesson plan for next week', priority: 'Medium', dueDate: 'Nov 10' },
-  { id: 3, task: 'Update student progress reports', priority: 'High', dueDate: 'Nov 08' },
-  { id: 4, task: 'Review assignment submissions', priority: 'Low', dueDate: 'Nov 12' },
-];
+import { teacherService } from '../../services';
+import { toast } from 'sonner@2.0.3';
+import { ApiException, getUserFriendlyError } from '../../utils/errors';
+import { useNavigate } from 'react-router-dom';
+import { isTeacher } from '../../utils/role-check';
 
 export function TeacherDashboard() {
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [dashboardData, setDashboardData] = useState<any>({ performance: {}, workload: {}, upcomingSchedule: [], upcomingExams: [] });
+  const [upcomingSchedule, setUpcomingSchedule] = useState<any[]>([]);
+  const [recentAssignments, setRecentAssignments] = useState<any[]>([]);
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    // Check if user is a teacher before loading data
+    const checkAndLoad = async () => {
+      const teacherCheck = isTeacher();
+      if (!teacherCheck) {
+        toast.error('Access denied: Teacher role required. Please login as a teacher.');
+        // Don't redirect immediately - let user see the error
+        // Just set loading to false so UI renders
+        setLoading(false);
+        setHasError(true);
+        const schoolId = sessionStorage.getItem('school_uuid');
+        // Redirect after a delay
+        setTimeout(() => {
+          if (schoolId) {
+            navigate(`/admin/school/${schoolId}/dashboard`);
+          } else {
+            navigate('/admin/login');
+          }
+        }, 2000);
+        return;
+      }
+      await loadDashboardData();
+    };
+    
+    checkAndLoad();
+  }, [navigate]);
+
+  const loadDashboardData = async () => {
+    let timeoutId: NodeJS.Timeout | null = null;
+    try {
+      setLoading(true);
+      setHasError(false);
+      
+      // Set a timeout to ensure loading doesn't get stuck
+      timeoutId = setTimeout(() => {
+        console.warn('Dashboard loading timeout - showing UI anyway');
+        setLoading(false);
+        setHasError(true);
+      }, 10000); // 10 second timeout
+
+      const [dashboardRes, scheduleRes, assignmentsRes] = await Promise.allSettled([
+        teacherService.getDashboard(),
+        teacherService.getWeeklySchedule(),
+        teacherService.getAssignments({ page: 1, limit: 3 })
+      ]);
+
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+
+      // Handle dashboard response
+      if (dashboardRes.status === 'fulfilled') {
+        setDashboardData(dashboardRes.value.data || { performance: {}, workload: {}, upcomingSchedule: [], upcomingExams: [] });
+        setUpcomingSchedule(dashboardRes.value.data?.upcomingSchedule || []);
+        setHasError(false);
+      } else {
+        console.error('Dashboard API failed:', dashboardRes.reason);
+        // Keep existing data or set empty data
+        setDashboardData(prev => prev || { performance: {}, workload: {}, upcomingSchedule: [], upcomingExams: [] });
+        setHasError(true);
+      }
+
+      // Handle schedule response
+      if (scheduleRes.status === 'fulfilled') {
+        const scheduleData = scheduleRes.value.data?.schedule || [];
+        if (scheduleData.length > 0 && scheduleData[0]?.periods) {
+          setUpcomingSchedule(prev => [...prev, ...scheduleData[0].periods]);
+        }
+      } else {
+        console.error('Schedule API failed:', scheduleRes.reason);
+      }
+
+      // Handle assignments response
+      if (assignmentsRes.status === 'fulfilled') {
+        setRecentAssignments(assignmentsRes.value.data?.assignments || []);
+      } else {
+        console.error('Assignments API failed:', assignmentsRes.reason);
+        setRecentAssignments([]);
+      }
+
+      // Show error only if all APIs failed
+      const allFailed = dashboardRes.status === 'rejected' && scheduleRes.status === 'rejected' && assignmentsRes.status === 'rejected';
+      if (allFailed) {
+        const firstError = dashboardRes.status === 'rejected' ? dashboardRes.reason : 
+                          scheduleRes.status === 'rejected' ? scheduleRes.reason : 
+                          assignmentsRes.reason;
+        
+        if (firstError instanceof ApiException && firstError.statusCode === 403) {
+          const errorMessage = getUserFriendlyError(firstError);
+          toast.error(errorMessage, {
+            description: 'Please logout and login again as a teacher to access this page.',
+            duration: 5000,
+          });
+          
+          if (errorMessage.toLowerCase().includes('teacher') || errorMessage.toLowerCase().includes('role')) {
+            setTimeout(() => {
+              navigate('/admin/login');
+            }, 3000);
+          }
+        } else {
+          toast.error('Unable to load dashboard data. Some features may not be available.');
+        }
+      }
+    } catch (error: any) {
+      console.error('Unexpected error loading dashboard:', error);
+      // Ensure we always have data to render
+      setDashboardData(prev => prev || { performance: {}, workload: {}, upcomingSchedule: [], upcomingExams: [] });
+      setHasError(true);
+      toast.error('Failed to load dashboard data. Showing cached or empty data.');
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      setLoading(false);
+    }
+  };
+
+  // Ensure we always have data to render
+  const safeDashboardData = dashboardData || { performance: {}, workload: {}, upcomingSchedule: [], upcomingExams: [] };
+  const performance = safeDashboardData?.performance || {};
+  const workload = safeDashboardData?.workload || {};
+
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="space-y-6 p-6">
+        <div className="animate-pulse">
+          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-64 mb-2"></div>
+          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-96"></div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="h-32 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="h-64 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
+          <div className="h-64 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show access denied message if not a teacher
+  if (!isTeacher() && hasError) {
+    return (
+      <div className="space-y-6 p-6">
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6">
+          <h2 className="text-xl text-red-900 dark:text-red-200 mb-2">Access Denied</h2>
+          <p className="text-red-700 dark:text-red-300">
+            Teacher role required. Please login as a teacher to access this dashboard.
+          </p>
+          <Button 
+            onClick={() => navigate('/admin/login')} 
+            className="mt-4 bg-red-600 hover:bg-red-700 text-white"
+          >
+            Go to Login
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const nextClass = upcomingSchedule[0];
+  const nextClassTime = nextClass ? new Date(`2000-01-01T${nextClass.startTime}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : 'N/A';
+
   return (
     <div className="space-y-6">
+      {hasError && (
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 mb-4">
+          <p className="text-sm text-yellow-800 dark:text-yellow-200">
+            ⚠️ Some data could not be loaded. Please check your connection or try refreshing the page.
+          </p>
+        </div>
+      )}
       <div>
-        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">Welcome back, Dr. Sarah!</h1>
-        <p className="text-gray-600 dark:text-gray-400">Here's your teaching schedule and updates for today</p>
+        <h1 className="text-2xl text-gray-900 dark:text-white mb-2">Welcome back!</h1>
+        <p className="text-gray-600 dark:text-gray-400">
+          Here's your teaching schedule and updates for today
+        </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard
           title="Classes Today"
-          value="3"
-          change="Next at 9:00 AM"
+          value={upcomingSchedule.length.toString()}
+          change={nextClass ? `Next at ${nextClassTime}` : 'No classes'}
           changeType="neutral"
           icon={Calendar}
           iconColor="text-[#0A66C2]"
@@ -48,8 +212,8 @@ export function TeacherDashboard() {
         />
         <StatCard
           title="Total Students"
-          value="92"
-          change="Across 5 classes"
+          value={performance.totalStudents?.toString() || '0'}
+          change={`Across ${performance.totalClasses || 0} classes`}
           changeType="neutral"
           icon={Users}
           iconColor="text-green-600"
@@ -57,7 +221,7 @@ export function TeacherDashboard() {
         />
         <StatCard
           title="Pending Assignments"
-          value="12"
+          value={workload.pendingGrading?.toString() || '0'}
           change="To be graded"
           changeType="neutral"
           icon={FileText}
@@ -66,7 +230,7 @@ export function TeacherDashboard() {
         />
         <StatCard
           title="Avg Attendance"
-          value="87%"
+          value={`${performance.avgAttendance || 0}%`}
           change="This week"
           changeType="positive"
           icon={CheckCircle}
@@ -79,117 +243,107 @@ export function TeacherDashboard() {
         <Card className="p-6">
           <h3 className="text-lg text-gray-900 dark:text-white mb-4">Today's Schedule</h3>
           <div className="space-y-3">
-            {upcomingClasses.map((classItem) => (
-              <div key={classItem.id} className="flex items-start gap-4 p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
-                <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#0A66C2] to-[#0052A3] flex items-center justify-center text-white flex-shrink-0">
-                  <Calendar className="w-6 h-6" />
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-start justify-between mb-1">
-                    <div>
-                      <h4 className="text-sm text-gray-900 dark:text-white">{classItem.subject}</h4>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">{classItem.class} • {classItem.room}</p>
+            {upcomingSchedule.length > 0 ? (
+              upcomingSchedule.slice(0, 3).map((classItem: any) => {
+                const startTime = new Date(`2000-01-01T${classItem.startTime}`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                return (
+                  <div key={classItem.id} className="flex items-start gap-4 p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
+                    <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[#0A66C2] to-[#0052A3] flex items-center justify-center text-white flex-shrink-0">
+                      <Calendar className="w-6 h-6" />
                     </div>
-                    <Badge variant="outline" className="bg-[#E8F0FE] text-[#0A66C2] border-[#0A66C2]">
-                      {classItem.time}
-                    </Badge>
+                    <div className="flex-1">
+                      <div className="flex items-start justify-between mb-1">
+                        <div>
+                          <h4 className="text-sm text-gray-900 dark:text-white">{classItem.subject || 'Subject'}</h4>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">{classItem.className || classItem.class} {classItem.sectionName ? `• ${classItem.sectionName}` : ''} {classItem.room ? `• ${classItem.room}` : ''}</p>
+                        </div>
+                        <Badge variant="outline" className="bg-[#E8F0FE] text-[#0A66C2] border-[#0A66C2]">
+                          {startTime}
+                        </Badge>
+                      </div>
+                    </div>
                   </div>
-                  <p className="text-xs text-gray-600 dark:text-gray-400">{classItem.duration}</p>
-                </div>
-              </div>
-            ))}
+                );
+              })
+            ) : (
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No classes scheduled for today</p>
+            )}
           </div>
           <Button className="w-full mt-4" variant="outline">View Full Schedule</Button>
         </Card>
 
         <Card className="p-6">
-          <h3 className="text-lg text-gray-900 dark:text-white mb-4">Today's Attendance</h3>
+          <h3 className="text-lg text-gray-900 dark:text-white mb-4">Recent Assignments</h3>
           <div className="space-y-4">
-            {todayAttendance.map((attendance, index) => (
-              <div key={index} className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-900 dark:text-white">{attendance.class}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{attendance.time}</p>
+            {recentAssignments.length > 0 ? (
+              recentAssignments.map((assignment: any) => (
+                <div key={assignment.id} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-900 dark:text-white">{assignment.title}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{assignment.className || assignment.class}</p>
+                    </div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      {assignment.submittedCount || 0}/{assignment.totalStudents || 0}
+                    </p>
                   </div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    {attendance.present}/{attendance.total}
-                  </p>
+                  <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-green-500"
+                      style={{ width: `${assignment.totalStudents ? ((assignment.submittedCount || 0) / assignment.totalStudents) * 100 : 0}%` }}
+                    ></div>
+                  </div>
                 </div>
-                <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-green-500"
-                    style={{ width: `${(attendance.present / attendance.total) * 100}%` }}
-                  ></div>
-                </div>
-                <div className="flex gap-4 text-xs">
-                  <span className="text-green-600">Present: {attendance.present}</span>
-                  <span className="text-red-600">Absent: {attendance.absent}</span>
-                </div>
-              </div>
-            ))}
+              ))
+            ) : (
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No recent assignments</p>
+            )}
           </div>
-          <Button className="w-full mt-4 bg-[#0A66C2] hover:bg-[#0052A3]">Mark Attendance</Button>
+          <Button className="w-full mt-4 bg-[#0A66C2] hover:bg-[#0052A3]">View All Assignments</Button>
         </Card>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="p-6">
-          <h3 className="text-lg text-gray-900 dark:text-white mb-4">Recent Assignments</h3>
+          <h3 className="text-lg text-gray-900 dark:text-white mb-4">Upcoming Exams</h3>
           <div className="space-y-3">
-            {recentAssignments.map((assignment) => (
-              <div key={assignment.id} className="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <h4 className="text-sm text-gray-900 dark:text-white mb-1">{assignment.title}</h4>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{assignment.class}</p>
+            {safeDashboardData?.upcomingExams && safeDashboardData.upcomingExams.length > 0 ? (
+              safeDashboardData.upcomingExams.slice(0, 3).map((exam: any) => (
+                <div key={exam.id} className="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <h4 className="text-sm text-gray-900 dark:text-white mb-1">{exam.name}</h4>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{exam.subject} • {exam.className}</p>
+                    </div>
+                    <Badge variant="outline" className="text-xs">
+                      {new Date(exam.date).toLocaleDateString()}
+                    </Badge>
                   </div>
-                  <Badge variant="outline" className="text-xs">
-                    Due: {assignment.dueDate}
-                  </Badge>
                 </div>
-                <div className="flex items-center gap-2 mt-3">
-                  <div className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-[#0A66C2]"
-                      style={{ width: `${(assignment.submitted / assignment.total) * 100}%` }}
-                    ></div>
-                  </div>
-                  <span className="text-xs text-gray-600 dark:text-gray-400">
-                    {assignment.submitted}/{assignment.total}
-                  </span>
-                </div>
-              </div>
-            ))}
+              ))
+            ) : (
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No upcoming exams</p>
+            )}
           </div>
         </Card>
 
         <Card className="p-6">
-          <h3 className="text-lg text-gray-900 dark:text-white mb-4">Pending Tasks</h3>
-          <div className="space-y-2">
-            {pendingTasks.map((task) => (
-              <div key={task.id} className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-700">
-                <div className="w-5 h-5 rounded border-2 border-gray-300 dark:border-gray-600 flex-shrink-0 mt-0.5"></div>
-                <div className="flex-1">
-                  <p className="text-sm text-gray-900 dark:text-white mb-1">{task.task}</p>
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className={`text-xs ${task.priority === 'High' ? 'bg-red-50 text-red-700 border-red-200' :
-                          task.priority === 'Medium' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
-                            'bg-gray-50 text-gray-700 border-gray-200'
-                        }`}
-                    >
-                      {task.priority}
-                    </Badge>
-                    <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      {task.dueDate}
-                    </span>
-                  </div>
-                </div>
+          <h3 className="text-lg text-gray-900 dark:text-white mb-4">Workload Summary</h3>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between p-3 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
+              <div>
+                <p className="text-sm text-gray-900 dark:text-white">Pending Grading</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Assignments to be graded</p>
               </div>
-            ))}
+              <span className="text-2xl text-orange-600 dark:text-orange-400">{workload.pendingGrading || 0}</span>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+              <div>
+                <p className="text-sm text-gray-900 dark:text-white">Upcoming Exams</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Exams to prepare</p>
+              </div>
+              <span className="text-2xl text-blue-600 dark:text-blue-400">{workload.upcomingExams || 0}</span>
+            </div>
           </div>
         </Card>
       </div>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { User, Mail, Phone, MapPin, Calendar, Award, BookOpen, Save, Camera } from 'lucide-react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
@@ -9,62 +9,82 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Badge } from '../ui/badge';
 import { toast } from 'sonner@2.0.3';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-
-interface TeacherProfile {
-  name: string;
-  email: string;
-  phone: string;
-  address: string;
-  dateOfBirth: string;
-  gender: string;
-  qualification: string;
-  specialization: string;
-  experience: string;
-  joiningDate: string;
-  employeeId: string;
-  bio: string;
-}
-
-const mockProfile: TeacherProfile = {
-  name: 'Dr. Sarah Ahmed',
-  email: 'sarah.ahmed@school.edu',
-  phone: '+92 300-1234567',
-  address: 'House 123, Street 45, F-7/4, Islamabad',
-  dateOfBirth: '1985-06-15',
-  gender: 'Female',
-  qualification: 'PhD in Mathematics',
-  specialization: 'Applied Mathematics',
-  experience: '12 years',
-  joiningDate: '2012-08-15',
-  employeeId: 'EMP-2012-001',
-  bio: 'Passionate mathematics educator with over 12 years of experience in teaching advanced mathematics. Specialized in making complex concepts simple and engaging for students.'
-};
-
-const teachingStats = {
-  totalClasses: 4,
-  totalStudents: 125,
-  avgAttendance: 88,
-  avgGrade: 78,
-  completedTopics: 53,
-  totalTopics: 80
-};
+import { teacherService } from '../../services';
+import type { TeacherProfile as TeacherProfileType, UpdateTeacherProfileRequest } from '../../services/teacher.service';
 
 export function TeacherProfile() {
-  const [profile, setProfile] = useState<TeacherProfile>(mockProfile);
+  const [profile, setProfile] = useState<TeacherProfileType | null>(null);
+  const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [updateData, setUpdateData] = useState<UpdateTeacherProfileRequest>({});
 
-  const handleSave = () => {
-    setIsSaving(true);
-    setTimeout(() => {
-      setIsSaving(false);
-      setIsEditing(false);
-      toast.success('Profile updated successfully!');
-    }, 1500);
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  const loadProfile = async () => {
+    try {
+      setLoading(true);
+      const response = await teacherService.getProfile();
+      setProfile(response.data);
+      setUpdateData({
+        address: response.data.address,
+        phone: response.data.phone,
+        preferredLocale: response.data.preferredLocale,
+        timezone: response.data.timezone,
+        experienceYears: response.data.teacher?.experienceYears,
+        specialization: response.data.teacher?.specialization,
+        dateOfBirth: response.data.dateOfBirth,
+      });
+    } catch (error: any) {
+      console.error('Failed to load profile:', error);
+      toast.error('Failed to load profile');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleChange = (field: keyof TeacherProfile, value: string) => {
-    setProfile(prev => ({ ...prev, [field]: value }));
+  const handleSave = async () => {
+    try {
+      setIsSaving(true);
+      const response = await teacherService.updateProfile(updateData);
+      setProfile(response.data);
+      setIsEditing(false);
+      toast.success('Profile updated successfully!');
+    } catch (error: any) {
+      console.error('Failed to update profile:', error);
+      toast.error('Failed to update profile');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleChange = (field: keyof UpdateTeacherProfileRequest, value: string | number | undefined) => {
+    setUpdateData(prev => ({ ...prev, [field]: value }));
+  };
+
+  if (loading || !profile) {
+    return (
+      <div className="space-y-6">
+        <div className="animate-pulse">
+          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-64 mb-2"></div>
+          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-96"></div>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="h-96 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          <div className="lg:col-span-2 h-96 bg-gray-200 dark:bg-gray-700 rounded"></div>
+        </div>
+      </div>
+    );
+  }
+
+  const fullName = `${profile.firstName} ${profile.lastName}`;
+  const teachingStats = {
+    totalClasses: 0,
+    totalStudents: 0,
+    avgAttendance: 0,
+    avgGrade: 0,
   };
 
   return (
@@ -109,7 +129,7 @@ export function TeacherProfile() {
           <div className="text-center">
             <div className="relative inline-block mb-4">
               <div className="w-32 h-32 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-4xl mx-auto">
-                {profile.name.charAt(0)}
+                {profile.firstName.charAt(0)}
               </div>
               {isEditing && (
                 <button className="absolute bottom-0 right-0 w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-700 flex items-center justify-center text-white border-4 border-white dark:border-gray-800">
@@ -117,10 +137,10 @@ export function TeacherProfile() {
                 </button>
               )}
             </div>
-            <h2 className="text-2xl text-gray-900 dark:text-white mb-1">{profile.name}</h2>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{profile.qualification}</p>
+            <h2 className="text-2xl text-gray-900 dark:text-white mb-1">{fullName}</h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{profile.teacher?.qualification || 'Teacher'}</p>
             <Badge variant="outline" className="mb-4">
-              {profile.employeeId}
+              {profile.teacher?.employeeId || 'N/A'}
             </Badge>
 
             <div className="space-y-3 text-sm text-left mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
@@ -138,7 +158,7 @@ export function TeacherProfile() {
               </div>
               <div className="flex items-center gap-3 text-gray-600 dark:text-gray-400">
                 <Calendar className="w-4 h-4 flex-shrink-0" />
-                <span>Joined: {new Date(profile.joiningDate).toLocaleDateString()}</span>
+                <span>Status: {profile.teacher?.employmentStatus || 'N/A'}</span>
               </div>
             </div>
           </div>
@@ -192,10 +212,9 @@ export function TeacherProfile() {
                         <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                         <Input
                           id="name"
-                          value={profile.name}
-                          onChange={(e) => handleChange('name', e.target.value)}
-                          disabled={!isEditing}
-                          className="pl-10 h-11"
+                          value={fullName}
+                          disabled
+                          className="pl-10 h-11 bg-gray-50 dark:bg-gray-900"
                         />
                       </div>
                     </div>
@@ -208,9 +227,8 @@ export function TeacherProfile() {
                           id="email"
                           type="email"
                           value={profile.email}
-                          onChange={(e) => handleChange('email', e.target.value)}
-                          disabled={!isEditing}
-                          className="pl-10 h-11"
+                          disabled
+                          className="pl-10 h-11 bg-gray-50 dark:bg-gray-900"
                         />
                       </div>
                     </div>
@@ -222,9 +240,10 @@ export function TeacherProfile() {
                         <Input
                           id="phone"
                           type="tel"
-                          value={profile.phone}
+                          value={updateData.phone || profile.phone || ''}
                           onChange={(e) => handleChange('phone', e.target.value)}
                           disabled={!isEditing}
+                          maxLength={15}
                           className="pl-10 h-11"
                         />
                       </div>
@@ -237,26 +256,12 @@ export function TeacherProfile() {
                         <Input
                           id="dob"
                           type="date"
-                          value={profile.dateOfBirth}
+                          value={updateData.dateOfBirth || profile.dateOfBirth || ''}
                           onChange={(e) => handleChange('dateOfBirth', e.target.value)}
                           disabled={!isEditing}
                           className="pl-10 h-11"
                         />
                       </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="gender">Gender</Label>
-                      <Select value={profile.gender} onValueChange={(value) => handleChange('gender', value)} disabled={!isEditing}>
-                        <SelectTrigger className="h-11">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Male">Male</SelectItem>
-                          <SelectItem value="Female">Female</SelectItem>
-                          <SelectItem value="Other">Other</SelectItem>
-                        </SelectContent>
-                      </Select>
                     </div>
                   </div>
 
@@ -266,25 +271,14 @@ export function TeacherProfile() {
                       <MapPin className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
                       <Textarea
                         id="address"
-                        value={profile.address}
+                        value={updateData.address || profile.address || ''}
                         onChange={(e) => handleChange('address', e.target.value)}
                         disabled={!isEditing}
                         rows={3}
+                        maxLength={200}
                         className="pl-10 resize-none"
                       />
                     </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="bio">Bio</Label>
-                    <Textarea
-                      id="bio"
-                      value={profile.bio}
-                      onChange={(e) => handleChange('bio', e.target.value)}
-                      disabled={!isEditing}
-                      rows={4}
-                      className="resize-none"
-                    />
                   </div>
                 </div>
               </TabsContent>
@@ -325,10 +319,9 @@ export function TeacherProfile() {
                         <Award className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                         <Input
                           id="qualification"
-                          value={profile.qualification}
-                          onChange={(e) => handleChange('qualification', e.target.value)}
-                          disabled={!isEditing}
-                          className="pl-10 h-11"
+                          value={profile.teacher?.qualification || ''}
+                          disabled
+                          className="pl-10 h-11 bg-gray-50 dark:bg-gray-900"
                         />
                       </div>
                     </div>
@@ -339,7 +332,7 @@ export function TeacherProfile() {
                         <BookOpen className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                         <Input
                           id="specialization"
-                          value={profile.specialization}
+                          value={updateData.specialization || profile.teacher?.specialization || ''}
                           onChange={(e) => handleChange('specialization', e.target.value)}
                           disabled={!isEditing}
                           className="pl-10 h-11"
@@ -348,11 +341,13 @@ export function TeacherProfile() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="experience">Experience</Label>
+                      <Label htmlFor="experience">Experience (Years)</Label>
                       <Input
                         id="experience"
-                        value={profile.experience}
-                        onChange={(e) => handleChange('experience', e.target.value)}
+                        type="number"
+                        min="0"
+                        value={updateData.experienceYears ?? profile.teacher?.experienceYears ?? 0}
+                        onChange={(e) => handleChange('experienceYears', parseInt(e.target.value) || 0)}
                         disabled={!isEditing}
                         className="h-11"
                       />
